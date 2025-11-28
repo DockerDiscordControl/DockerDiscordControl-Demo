@@ -11,7 +11,10 @@
     </div>
     <div class="d-flex justify-content-between mb-3">
         <button type="button" class="btn btn-success btn-sm {% if is_demo_mode %}demo-disabled{% endif %}" onclick="addStatusChannelRow()" {% if is_demo_mode %}disabled{% endif %}>+ Add Channel</button>
-        <button type="button" class="btn btn-warning btn-sm {% if is_demo_mode %}demo-disabled{% endif %}" onclick="openAdminModal()" {% if is_demo_mode %}disabled{% endif %}>👤 Admin Users</button>
+        <div class="d-flex align-items-center">
+            <span class="demo-handwritten-note">works! →</span>
+            <button type="button" class="btn btn-warning btn-sm demo-pulse-btn" onclick="openAdminModal()">👤 Admin Users</button>
+        </div>
     </div>
     <table class="table table-dark table-sm small table-hover" id="status-channels-table">
         <thead>

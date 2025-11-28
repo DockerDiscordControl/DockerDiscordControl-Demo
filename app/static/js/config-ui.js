@@ -411,6 +411,9 @@ let adminUsers = [];
 let adminNotes = {};
 let pendingAdminChanges = [];
 
+// Protected admin users (cannot be removed in demo mode)
+const PROTECTED_ADMIN_USERS = ['766595606574530581'];
+
 function openAdminModal() {
     // Load admin users from server
     fetch('/api/admin-users')
@@ -440,14 +443,19 @@ function renderAdminUsers() {
 
     adminUsers.forEach((userId, index) => {
         const note = adminNotes[userId] || '';
+        const isProtected = PROTECTED_ADMIN_USERS.includes(userId);
         const item = document.createElement('div');
         item.className = 'list-group-item list-group-item-action d-flex justify-content-between align-items-center bg-dark text-white';
         item.innerHTML = `
             <div>
                 <strong>${userId}</strong>
+                ${isProtected ? '<span class="badge bg-success ms-2">🛡️ Protected</span>' : ''}
                 ${note ? `<span class="text-muted ms-2">(${note})</span>` : ''}
             </div>
-            <button class="btn btn-sm btn-danger" onclick="removeAdminUser(${index})">Remove</button>
+            ${isProtected
+                ? '<button class="btn btn-sm btn-secondary" disabled title="Protected user cannot be removed">🔒 Protected</button>'
+                : `<button class="btn btn-sm btn-danger" onclick="removeAdminUser(${index})">Remove</button>`
+            }
         `;
         listContainer.appendChild(item);
     });
@@ -489,6 +497,13 @@ function addAdminUser() {
 function removeAdminUser(index) {
     if (index >= 0 && index < adminUsers.length) {
         const userId = adminUsers[index];
+
+        // Check if user is protected
+        if (PROTECTED_ADMIN_USERS.includes(userId)) {
+            alert('This user is protected and cannot be removed.');
+            return;
+        }
+
         adminUsers.splice(index, 1);
         delete adminNotes[userId];
 

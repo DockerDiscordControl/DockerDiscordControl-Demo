@@ -2258,6 +2258,11 @@ class DockerControlCog(commands.Cog, StatusHandlersMixin):
                 evolution_name = translate(evolution['name'])
                 level_text = translate("Level")
                 mech_status = f"{evolution_name} ({level_text} {evolution['level']})\n"
+
+                # Demo mode level cap indicator
+                if mech_cache_result.level_capped:
+                    mech_status += f"{mech_cache_result.level_cap_message}\n"
+
                 speed_text = translate("Speed")
                 mech_status += f"{speed_text}: {speed['description']}\n\n"
 
@@ -2734,7 +2739,12 @@ class DockerControlCog(commands.Cog, StatusHandlersMixin):
                         embed.set_footer(text=f"{embed.footer.text} | 🎬 Animation unavailable")
 
                 # For collapsed view, only add a simple field name (no detailed info)
-                embed.add_field(name=translate("Donation Engine"), value="*" + translate("Click + to view Mech details") + "*", inline=False)
+                # Add demo cap message if level is capped
+                field_value = ""
+                if mech_cache_result.level_capped:
+                    field_value = f"{mech_cache_result.level_cap_message}\n"
+                field_value += "*" + translate("Click + to view Mech details") + "*"
+                embed.add_field(name=translate("Donation Engine"), value=field_value, inline=False)
 
                 # For collapsed view, use mech animation
                 if animation_file:
@@ -3286,15 +3296,34 @@ class DockerControlCog(commands.Cog, StatusHandlersMixin):
             logger.info(f"Optimized cache warmup: Level {current_level}, Power {current_power:.2f}, Speed {current_speed_level}")
 
             # PARALLEL OPTIMIZATION: Generate small and big animations simultaneously
-            small_task = asyncio.create_task(
-                self._cache_small_animation_async(animation_cache, current_level, current_speed_level, current_power)
-            )
-            big_task = asyncio.create_task(
-                self._cache_big_animation_async(animation_cache, current_level, current_speed_level, current_power)
-            )
+            tasks = [
+                asyncio.create_task(
+                    self._cache_small_animation_async(animation_cache, current_level, current_speed_level, current_power)
+                ),
+                asyncio.create_task(
+                    self._cache_big_animation_async(animation_cache, current_level, current_speed_level, current_power)
+                )
+            ]
 
-            # Wait for both to complete in parallel (much faster than serial)
-            await asyncio.gather(small_task, big_task, return_exceptions=True)
+            # DEMO MODE: Also pre-cache Level 1 with Power 3 (default after reset)
+            # This ensures fast response when user clicks Mech button after demo reset
+            if os.environ.get('DDC_MODE') == 'demo':
+                demo_level = 1
+                demo_power = 3.0
+                demo_speed = 30  # Speed level for Power 3
+
+                # Only add if different from current state
+                if current_level != demo_level or abs(current_power - demo_power) > 0.5:
+                    logger.info(f"Demo mode: Also caching default state (Level {demo_level}, Power {demo_power}, Speed {demo_speed})")
+                    tasks.append(asyncio.create_task(
+                        self._cache_small_animation_async(animation_cache, demo_level, demo_speed, demo_power)
+                    ))
+                    tasks.append(asyncio.create_task(
+                        self._cache_big_animation_async(animation_cache, demo_level, demo_speed, demo_power)
+                    ))
+
+            # Wait for all to complete in parallel (much faster than serial)
+            await asyncio.gather(*tasks, return_exceptions=True)
 
         except (discord.errors.DiscordException, RuntimeError, ValueError) as e:
             logger.error(f"Error in optimized cache warmup: {e}", exc_info=True)
@@ -4650,21 +4679,24 @@ def setup(bot):
                 except Exception as e:
                     logger.error(f"Demo cleanup: Scheduler cache clear error: {e}")
 
-                # Stop specified containers
+                # Reset admin users to only protected user
                 try:
-                    docker_client = docker_lib.from_env()
-                    for container_name in DEMO_CONTAINERS_TO_STOP:
-                        try:
-                            container = docker_client.containers.get(container_name)
-                            if container.status == 'running':
-                                container.stop(timeout=10)
-                                logger.info(f"Demo cleanup: Stopped container {container_name}")
-                        except docker_lib.errors.NotFound:
-                            logger.debug(f"Demo cleanup: Container {container_name} not found")
-                        except Exception as e:
-                            logger.warning(f"Demo cleanup: Could not stop {container_name}: {e}")
+                    import json
+                    from pathlib import Path
+                    PROTECTED_ADMIN_USER_ID = "766595606574530581"
+                    admins_file = Path(__file__).parents[1] / 'config' / 'admins.json'
+                    admin_data = {
+                        "discord_admin_users": [PROTECTED_ADMIN_USER_ID],
+                        "admin_notes": {
+                            PROTECTED_ADMIN_USER_ID: "DDC Demo Owner (protected)"
+                        }
+                    }
+                    admins_file.parent.mkdir(parents=True, exist_ok=True)
+                    with open(admins_file, 'w') as f:
+                        json.dump(admin_data, f, indent=2)
+                    logger.info(f"Demo cleanup: Admin users reset - only protected user remains")
                 except Exception as e:
-                    logger.error(f"Demo cleanup: Docker error: {e}")
+                    logger.error(f"Demo cleanup: Admin users reset error: {e}")
 
                 # Get all configured channels from ChannelConfigService
                 from services.config.channel_config_service import get_channel_config_service
@@ -4714,22 +4746,31 @@ def setup(bot):
                 except Exception as e:
                     logger.warning(f"Demo cleanup: Update channel error: {e}")
 
-                # Stop containers AGAIN after all cleanup (in case config restore started them)
-                await asyncio.sleep(2)  # Wait for any config-triggered actions
-                try:
-                    docker_client = docker_lib.from_env()
-                    for container_name in DEMO_CONTAINERS_TO_STOP:
-                        try:
-                            container = docker_client.containers.get(container_name)
-                            if container.status == 'running':
-                                container.stop(timeout=10)
-                                logger.info(f"Demo cleanup: Final stop of container {container_name}")
-                        except docker_lib.errors.NotFound:
-                            pass
-                        except Exception as e:
-                            logger.warning(f"Demo cleanup: Final stop failed for {container_name}: {e}")
-                except Exception as e:
-                    logger.debug(f"Demo cleanup: Final container stop error: {e}")
+                # Stop containers in background thread (non-blocking to avoid delaying messages)
+                def stop_demo_containers_background():
+                    """Stop demo containers in background thread."""
+                    import time
+                    time.sleep(2)  # Wait for any config-triggered actions
+                    try:
+                        docker_client = docker_lib.from_env()
+                        for container_name in DEMO_CONTAINERS_TO_STOP:
+                            try:
+                                container = docker_client.containers.get(container_name)
+                                if container.status == 'running':
+                                    container.stop(timeout=5)  # Reduced timeout
+                                    logger.info(f"Demo cleanup: Stopped container {container_name}")
+                            except docker_lib.errors.NotFound:
+                                pass
+                            except Exception as e:
+                                logger.warning(f"Demo cleanup: Stop failed for {container_name}: {e}")
+                        docker_client.close()
+                    except Exception as e:
+                        logger.error(f"Demo cleanup: Background container stop error: {e}")
+
+                import threading
+                stop_thread = threading.Thread(target=stop_demo_containers_background, daemon=True)
+                stop_thread.start()
+                logger.info("Demo cleanup: Container stop scheduled in background")
 
                 # Clear the reset flag
                 DEMO_RESET_IN_PROGRESS = False
@@ -4743,6 +4784,59 @@ def setup(bot):
         demo_hourly_cleanup.start()
         cog.demo_hourly_cleanup = demo_hourly_cleanup
         logger.info("Demo mode: Hourly reset notification task started for all configured channels")
+
+        # Start demo update messages task loop
+        from services.demo.demo_update_messages_service import DEMO_UPDATE_MESSAGES, DISCLAIMER, UPDATE_CHANNEL_ID
+        import random
+
+        @tasks.loop(seconds=60)
+        async def demo_update_messages_loop():
+            """Send demo update messages to the update channel throughout each hour."""
+            try:
+                from datetime import datetime
+                now = datetime.now()
+
+                # Initialize state if needed
+                if not hasattr(demo_update_messages_loop, '_current_hour'):
+                    demo_update_messages_loop._current_hour = -1
+                    demo_update_messages_loop._messages_sent = 0
+                    demo_update_messages_loop._next_send_minute = random.randint(1, 5)
+
+                # Reset at start of each hour
+                if now.hour != demo_update_messages_loop._current_hour:
+                    demo_update_messages_loop._current_hour = now.hour
+                    demo_update_messages_loop._messages_sent = 0
+                    demo_update_messages_loop._next_send_minute = random.randint(1, 5)
+                    logger.info(f"Demo update messages: New hour {now.hour}:00 - reset counter, first message at :{demo_update_messages_loop._next_send_minute:02d}")
+
+                # Check if it's time to send a message (max 12 per hour)
+                if demo_update_messages_loop._messages_sent < 12 and now.minute >= demo_update_messages_loop._next_send_minute:
+                    channel = bot.get_channel(UPDATE_CHANNEL_ID)
+                    if channel:
+                        # Pick a random message
+                        message_data = random.choice(DEMO_UPDATE_MESSAGES)
+                        timestamp = now.strftime("%d.%m.%y, %H:%M")
+
+                        full_message = f"**{message_data['title']}**\n"
+                        full_message += f"— {timestamp}\n\n"
+                        full_message += message_data['content']
+                        full_message += DISCLAIMER
+
+                        await channel.send(full_message)
+                        demo_update_messages_loop._messages_sent += 1
+
+                        # Schedule next message (random 1-10 minutes from now)
+                        next_interval = random.randint(1, 10)
+                        demo_update_messages_loop._next_send_minute = min(59, now.minute + next_interval)
+
+                        logger.info(f"Demo update message #{demo_update_messages_loop._messages_sent}/12 sent ({message_data['container']}), next at :{demo_update_messages_loop._next_send_minute:02d}")
+
+            except Exception as e:
+                logger.error(f"Demo update messages loop error: {e}", exc_info=True)
+
+        demo_update_messages_loop.start()
+        cog.demo_update_messages_loop = demo_update_messages_loop
+        logger.info("Demo mode: Update messages loop started for update channel")
 
     bot.add_cog(cog)
     logger.info("[SETUP DEBUG] DockerControlCog added to bot")

@@ -69,10 +69,17 @@ button.demo-disabled,
 .demo-section-disabled input:not([type="hidden"]),
 .demo-section-disabled select,
 .demo-section-disabled textarea,
-.demo-section-disabled .btn:not(.btn-close) {
+.demo-section-disabled .btn:not(.btn-close):not(.demo-pulse-btn) {
     opacity: 0.6 !important;
     pointer-events: none !important;
     cursor: not-allowed !important;
+}
+
+/* Exception: Demo pulse buttons remain clickable */
+.demo-section-disabled .demo-pulse-btn {
+    opacity: 1 !important;
+    pointer-events: auto !important;
+    cursor: pointer !important;
 }
 
 .demo-section-disabled input:not([type="hidden"]),
@@ -84,4 +91,21 @@ button.demo-disabled,
 /* Protected row styling */
 .demo-protected-row {
     background-color: rgba(255, 193, 7, 0.1) !important;
+}
+
+/* Handwritten note style for demo highlights */
+.demo-handwritten-note {
+    font-family: 'Comic Sans MS', 'Chalkboard', 'Bradley Hand', cursive;
+    font-size: 0.9em;
+    color: #ffc107;
+    text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);
+    transform: rotate(-5deg);
+    display: inline-block;
+    margin-right: 8px;
+    animation: noteWiggle 2s ease-in-out infinite;
+}
+
+@keyframes noteWiggle {
+    0%, 100% { transform: rotate(-5deg); }
+    50% { transform: rotate(-3deg); }
 }

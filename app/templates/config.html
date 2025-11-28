@@ -500,6 +500,30 @@
             50% { transform: scale(1.05); }
         }
 
+        /* Demo mode pulsing button animation (heartbeat effect) */
+        @keyframes demoPulse {
+            0%, 100% {
+                transform: scale(1);
+                box-shadow: 0 0 0 0 rgba(255, 193, 7, 0.7);
+            }
+            50% {
+                transform: scale(1.05);
+                box-shadow: 0 0 15px 5px rgba(255, 193, 7, 0.4);
+            }
+        }
+
+        .demo-pulse-btn {
+            animation: demoPulse 1.5s ease-in-out infinite;
+            position: relative;
+        }
+
+        .demo-pulse-btn:hover {
+            animation: none;
+            transform: scale(1.1);
+            box-shadow: 0 0 20px 8px rgba(255, 193, 7, 0.5);
+            transition: all 0.2s ease;
+        }
+
         /* Mobile Responsive */
         @media (max-width: 768px) {
             .terminal-text, .cursor { 

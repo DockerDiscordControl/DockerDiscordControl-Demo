@@ -33,6 +33,12 @@ CONFIG_DIRS_TO_BACKUP = ["containers", "channels"]
 CONFIG_FILES_TO_BACKUP = ["config.json", "tasks.json"]
 RESET_HOUR_MINUTE = 0  # Reset at :00 of every hour
 
+# Containers to stop during hourly reset (simulates "offline" game servers)
+CONTAINERS_TO_STOP_ON_RESET = ["minecraft", "valheim"]
+
+# Protected admin user ID (never removed during reset)
+PROTECTED_ADMIN_USER_ID = "766595606574530581"
+
 
 def is_demo_mode() -> bool:
     """Check if running in demo mode."""
@@ -145,12 +151,38 @@ class DemoResetService:
         except Exception as e:
             logger.error(f"Failed to save demo defaults: {e}", exc_info=True)
 
+    def _stop_demo_containers(self):
+        """Stop specific containers during demo reset (simulates offline game servers)."""
+        try:
+            import docker
+            client = docker.from_env(timeout=10)
+
+            for container_name in CONTAINERS_TO_STOP_ON_RESET:
+                try:
+                    container = client.containers.get(container_name)
+                    if container.status == 'running':
+                        container.stop(timeout=5)
+                        logger.info(f"Stopped container '{container_name}' for demo reset")
+                    else:
+                        logger.debug(f"Container '{container_name}' already stopped")
+                except docker.errors.NotFound:
+                    logger.debug(f"Container '{container_name}' not found - skipping")
+                except Exception as e:
+                    logger.warning(f"Failed to stop container '{container_name}': {e}")
+
+            client.close()
+        except Exception as e:
+            logger.error(f"Error stopping demo containers: {e}", exc_info=True)
+
     def _reset_to_defaults(self):
         """Reset configuration to demo defaults."""
         try:
             if not self.defaults_dir.exists():
                 logger.warning("No demo defaults found - cannot reset")
                 return
+
+            # First, stop demo containers (minecraft, valheim)
+            self._stop_demo_containers()
 
             reset_count = 0
 
@@ -174,6 +206,9 @@ class DemoResetService:
                     reset_count += 1
                     logger.debug(f"Restored directory: {dirname}")
 
+            # Reset admin users to only protected user
+            self._reset_admin_users()
+
             # Touch the config update timestamp for cache invalidation
             self._touch_config_timestamp()
 
@@ -190,6 +225,28 @@ class DemoResetService:
             logger.debug("Touched config timestamp for cache invalidation")
         except Exception as e:
             logger.warning(f"Failed to touch config timestamp: {e}")
+
+    def _reset_admin_users(self):
+        """Reset admin users to only the protected user."""
+        try:
+            admins_file = self.config_dir / 'admins.json'
+
+            # Create admin data with only protected user
+            admin_data = {
+                "discord_admin_users": [PROTECTED_ADMIN_USER_ID],
+                "admin_notes": {
+                    PROTECTED_ADMIN_USER_ID: "DDC Demo Owner (protected)"
+                }
+            }
+
+            # Write the admins.json file
+            with open(admins_file, 'w') as f:
+                json.dump(admin_data, f, indent=2)
+
+            logger.info(f"Reset admin users - only protected user {PROTECTED_ADMIN_USER_ID} remains")
+
+        except Exception as e:
+            logger.error(f"Failed to reset admin users: {e}", exc_info=True)
 
     def force_reset(self) -> bool:
         """Force an immediate reset to defaults (for manual triggering)."""

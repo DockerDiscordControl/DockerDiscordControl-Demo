@@ -16,11 +16,16 @@ import logging
 import asyncio
 import threading
 import time
+import os
 from typing import Dict, Any, Optional
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
+
+# Demo mode: Cap mech level at 3
+DEMO_MODE = os.environ.get('DDC_MODE') == 'demo'
+DEMO_MAX_LEVEL = 3
 
 
 @dataclass
@@ -55,6 +60,10 @@ class MechStatusCacheResult:
     # Cache metadata
     cached_at: Optional[datetime] = None
     cache_age_seconds: float = 0.0
+
+    # Demo mode level cap indicator
+    level_capped: bool = False
+    level_cap_message: str = ""
 
     error_message: Optional[str] = None
 
@@ -203,21 +212,35 @@ class MechStatusCacheService:
             speed_description = combined_status['speed']['description']
             speed_color = combined_status['speed']['color']
 
+            # Apply demo mode level cap
+            actual_level = data_result.current_level
+            display_level = actual_level
+            level_capped = False
+            level_cap_message = ""
+
+            if DEMO_MODE and actual_level > DEMO_MAX_LEVEL:
+                display_level = DEMO_MAX_LEVEL
+                level_capped = True
+                level_cap_message = f"⚠️ Mech Level capped to {DEMO_MAX_LEVEL} for demo (actual: {actual_level})"
+                self.logger.info(f"[DEMO MODE] Level capped: {actual_level} → {display_level}")
+
             # Build cached result
             return MechStatusCacheResult(
                 success=True,
-                level=data_result.current_level,
+                level=display_level,
                 power=data_result.current_power,
                 total_donated=data_result.total_donated,
                 name=data_result.level_name,
                 threshold=data_result.next_level_threshold or 0,
                 speed=50.0,  # Default speed
-                glvl=data_result.current_level,
+                glvl=display_level,
                 glvl_max=100,
                 bars=getattr(data_result, 'bars', None),
                 speed_description=speed_description,
                 speed_color=speed_color,
-                cached_at=datetime.now(timezone.utc)
+                cached_at=datetime.now(timezone.utc),
+                level_capped=level_capped,
+                level_cap_message=level_cap_message
             )
 
         except (ImportError, AttributeError) as e:

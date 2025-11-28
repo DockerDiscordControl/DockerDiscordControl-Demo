@@ -13,8 +13,13 @@ Follows service-first architecture pattern, combining existing mech services.
 """
 
 import logging
+import os
 from typing import Optional, Dict, Any
 from dataclasses import dataclass
+
+# Demo mode: Cap mech level at 3
+DEMO_MODE = os.environ.get('DDC_MODE') == 'demo'
+DEMO_MAX_LEVEL = 3
 
 try:
     import discord
@@ -94,9 +99,21 @@ class MechStatusDetailsService:
             # Extract data from MechDataStore result
             power_decimal = data_result.current_power
 
+            # Apply demo mode level cap
+            actual_level = data_result.current_level
+            display_level = actual_level
+            level_capped = False
+            level_cap_message = ""
+
+            if DEMO_MODE and actual_level > DEMO_MAX_LEVEL:
+                display_level = DEMO_MAX_LEVEL
+                level_capped = True
+                level_cap_message = f"⚠️ Mech Level capped to {DEMO_MAX_LEVEL} for demo (actual: {actual_level})"
+                logger.info(f"[DEMO MODE] Level capped: {actual_level} → {display_level}")
+
             # Get speed description from MechDataStore using get_combined_mech_status (Single Point of Truth)
             # SPECIAL CASE: Level 11 is maximum level - always show "Divine" (translated) (no more speed changes)
-            if data_result.current_level >= 11:
+            if display_level >= 11:
                 from cogs.translation_manager import _
                 speed_description = _("Divine")  # Level 11 is final level with static divine speed
             else:
@@ -120,12 +137,14 @@ class MechStatusDetailsService:
                 )
                 speed_description = combined_status['speed']['description']
 
-            # Format level text
-            level_text = f"{data_result.level_name} (Level {data_result.current_level})"
+            # Format level text (use display_level for demo cap)
+            level_text = f"{data_result.level_name} (Level {display_level})"
+            if level_capped:
+                level_text += f"\n{level_cap_message}"
 
             # Create power progress bar using MechDataStore bars data
             # SPECIAL CASE: Level 11 is maximum level - show infinity instead of speed bar
-            if data_result.current_level >= 11:
+            if display_level >= 11:
                 # For maximum level, show "reached infinity" message with appreciation (divine perfection achieved)
                 power_bar = self._get_infinity_message()
             else:
@@ -143,7 +162,7 @@ class MechStatusDetailsService:
             power_text = f"⚡{power_decimal:.2f}"
 
             # Format energy consumption (dynamic) - Level 11 has no energy consumption
-            current_level = data_result.current_level
+            current_level = display_level  # Use capped level for demo mode
             if current_level >= 11:
                 energy_consumption = None  # Maximum level has no energy consumption
             else:
@@ -158,8 +177,8 @@ class MechStatusDetailsService:
             next_evolution = None
             evolution_bar = None
 
-            # Get level for next evolution calculation using MechDataStore
-            current_level = data_result.current_level
+            # Get level for next evolution calculation (use capped level for demo mode)
+            # current_level already set above to display_level
 
             # Try to get next level info
             next_level_info = self._get_next_level_info(current_level + 1)
@@ -368,6 +387,7 @@ class MechStatusDetailsService:
 
             request = MechAnimationRequest(
                 force_power=power,
+                force_evolution_level=level,  # CRITICAL: Use capped level for demo mode
                 resolution=resolution
             )
 

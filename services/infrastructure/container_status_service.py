@@ -26,6 +26,9 @@ from utils.logging_utils import get_module_logger
 
 logger = get_module_logger('container_status_service')
 
+# Demo mode: Skip auto-deactivation of missing containers
+DEMO_MODE = os.environ.get('DDC_MODE') == 'demo'
+
 @dataclass(frozen=True)
 class ContainerStatusRequest:
     """Request for container status information."""
@@ -479,12 +482,16 @@ class ContainerStatusService:
                 )
 
         except docker.errors.NotFound as e:
-            # Container not found error - automatically deactivate it
+            # Container not found error - automatically deactivate it (skip in demo mode)
             duration_ms = (time.time() - start_time) * 1000
             self.logger.warning(f"Container '{request.container_name}' not found (may have been removed or renamed)")
 
             # Automatically deactivate the container to prevent future errors
-            self._deactivate_container(request.container_name)
+            # DEMO MODE: Skip auto-deactivation to keep demo containers visible
+            if not DEMO_MODE:
+                self._deactivate_container(request.container_name)
+            else:
+                self.logger.info(f"[DEMO MODE] Skipping auto-deactivation for '{request.container_name}'")
 
             return ContainerStatusResult(
                 success=False,
