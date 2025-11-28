@@ -59,6 +59,9 @@ from .status_handlers import StatusHandlersMixin
 # Configure logger for the cog using utility (INFO for release)
 logger = setup_logger('ddc.docker_control', level=logging.INFO)
 
+# Module-level flag for demo reset race condition prevention
+DEMO_RESET_IN_PROGRESS = False
+
 # DonationView will be defined in this file
 
 # CRITICAL DEBUG: Log at module load time to verify new code is being executed
@@ -3333,7 +3336,8 @@ class DockerControlCog(commands.Cog, StatusHandlersMixin):
     async def inactivity_check_loop(self):
         """Checks for channel inactivity and regenerates messages if needed."""
         # Check if demo reset is in progress (to prevent race condition)
-        if getattr(demo_hourly_cleanup, '_reset_in_progress', False):
+        global DEMO_RESET_IN_PROGRESS
+        if DEMO_RESET_IN_PROGRESS:
             logger.info("Inactivity check loop: Skipping - demo reset in progress")
             return
 
@@ -4543,7 +4547,7 @@ def setup(bot):
         DEMO_RESET_MESSAGE = "🔄 **Demo Reset** - Configuration restored. Next reset in 1 hour.\n\n_This is a demo server. All changes reset hourly._"
         DEMO_CONTAINERS_TO_STOP = ['minecraft', 'valheim']  # Containers to stop on reset
         DEMO_UPDATE_CHANNEL_ID = 1443591386292289678  # Update channel - gets fully purged
-        DEMO_RESET_IN_PROGRESS = False  # Flag to prevent race conditions with inactivity check
+        # Note: DEMO_RESET_IN_PROGRESS is defined at module level
 
         @tasks.loop(seconds=30)
         async def demo_hourly_cleanup():
@@ -4577,7 +4581,8 @@ def setup(bot):
                 logger.info("Demo cleanup: Hourly reset triggered")
 
                 # Set flag to prevent inactivity check from running during reset
-                demo_hourly_cleanup._reset_in_progress = True
+                global DEMO_RESET_IN_PROGRESS
+                DEMO_RESET_IN_PROGRESS = True
 
                 # Reset Mech to Level 1 with Power 3 and Evolution 0
                 try:
@@ -4718,13 +4723,13 @@ def setup(bot):
                     logger.debug(f"Demo cleanup: Final container stop error: {e}")
 
                 # Clear the reset flag
-                demo_hourly_cleanup._reset_in_progress = False
+                DEMO_RESET_IN_PROGRESS = False
                 logger.info("Demo cleanup: Reset completed, inactivity check re-enabled")
 
             except Exception as e:
                 logger.error(f"Demo cleanup task error: {e}", exc_info=True)
                 # Ensure flag is cleared even on error
-                demo_hourly_cleanup._reset_in_progress = False
+                DEMO_RESET_IN_PROGRESS = False
 
         demo_hourly_cleanup.start()
         cog.demo_hourly_cleanup = demo_hourly_cleanup
