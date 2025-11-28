@@ -3899,46 +3899,55 @@ class DockerControlCog(commands.Cog, StatusHandlersMixin):
 
             # CRITICAL FIX: Automatically recreate the message to prevent corruption
             try:
-                # Generate new overview message as recovery
-                is_mech_expanded = self.mech_expanded_states.get(channel_id, False)
-                if is_mech_expanded:
-                    embed, animation_file = await self._create_overview_embed_expanded(ordered_servers, config)
-                else:
-                    embed, animation_file = await self._create_overview_embed_collapsed(ordered_servers, config)
-
-                # Create MechView with expand/collapse buttons
-                from .control_ui import MechView
-                view = MechView(self, channel_id)
-
                 # CLEAN SWEEP: Delete all old bot messages before creating new one
                 await self._clean_sweep_bot_messages(channel, "recovery from deleted message")
 
-                # Send new overview message as recovery
-                if animation_file:
-                    if hasattr(animation_file, 'fp') and animation_file.fp:
-                        new_message = await channel.send(embed=embed, file=animation_file, view=view)
+                # Generate message based on message_type (admin_overview vs overview)
+                if message_type == "admin_overview":
+                    # Recovery for Admin Overview (Control channels)
+                    embed, _, has_running = await self._create_admin_overview_embed(ordered_servers, config, force_refresh=False)
+                    from .admin_overview import AdminOverviewView
+                    view = AdminOverviewView(self, channel_id, has_running)
+                    new_message = await channel.send(embed=embed, view=view)
+                    logger.info(f"✅ RECOVERY SUCCESS: Auto-recreated ADMIN OVERVIEW message {new_message.id} to replace deleted {message_id} in channel {channel_id}")
+                else:
+                    # Recovery for Server Overview (Status channels)
+                    is_mech_expanded = self.mech_expanded_states.get(channel_id, False)
+                    if is_mech_expanded:
+                        embed, animation_file = await self._create_overview_embed_expanded(ordered_servers, config)
+                    else:
+                        embed, animation_file = await self._create_overview_embed_collapsed(ordered_servers, config)
+
+                    # Create MechView with expand/collapse buttons
+                    from .control_ui import MechView
+                    view = MechView(self, channel_id)
+
+                    # Send new overview message as recovery
+                    if animation_file:
+                        if hasattr(animation_file, 'fp') and animation_file.fp:
+                            new_message = await channel.send(embed=embed, file=animation_file, view=view)
+                        else:
+                            new_message = await channel.send(embed=embed, view=view)
                     else:
                         new_message = await channel.send(embed=embed, view=view)
-                else:
-                    new_message = await channel.send(embed=embed, view=view)
+                    logger.info(f"✅ RECOVERY SUCCESS: Auto-recreated SERVER OVERVIEW message {new_message.id} to replace deleted {message_id} in channel {channel_id}")
 
-                # Update tracking with new message ID
+                # Update tracking with new message ID (use correct message_type key)
                 if channel_id in self.channel_server_message_ids:
-                    self.channel_server_message_ids[channel_id]['overview'] = new_message.id
+                    self.channel_server_message_ids[channel_id][message_type] = new_message.id
 
                 now_utc = datetime.now(timezone.utc)
                 if channel_id not in self.last_message_update_time:
                     self.last_message_update_time[channel_id] = {}
-                self.last_message_update_time[channel_id]['overview'] = now_utc
+                self.last_message_update_time[channel_id][message_type] = now_utc
 
-                logger.info(f"✅ RECOVERY SUCCESS: Auto-recreated overview message {new_message.id} to replace deleted {message_id} in channel {channel_id}")
                 return True  # Recovery successful
 
             except (discord.errors.DiscordException, RuntimeError) as recovery_error:
-                logger.error(f"❌ RECOVERY FAILED: Could not auto-recreate overview message for channel {channel_id}: {recovery_error}", exc_info=True)
+                logger.error(f"❌ RECOVERY FAILED: Could not auto-recreate {message_type} message for channel {channel_id}: {recovery_error}", exc_info=True)
                 # Remove from tracking since we can't recover
-                if channel_id in self.channel_server_message_ids and 'overview' in self.channel_server_message_ids[channel_id]:
-                    del self.channel_server_message_ids[channel_id]['overview']
+                if channel_id in self.channel_server_message_ids and message_type in self.channel_server_message_ids[channel_id]:
+                    del self.channel_server_message_ids[channel_id][message_type]
                 return False
 
         except (discord.errors.DiscordException, RuntimeError, ValueError, OSError) as e:
