@@ -29,12 +29,22 @@ class ChannelConfigService:
         """Initialize the ChannelConfigService."""
         # Robust absolute path relative to project root (3 levels up from services/config/channel_config_service.py)
         self.base_dir = Path(__file__).parents[2]
-        self.channels_dir = self.base_dir / 'config' / 'channels'
-        self.config_file = self.base_dir / 'config' / 'config.json'
+        self.config_dir = self.base_dir / 'config'
+        self.channels_dir = self.config_dir / 'channels'
+        self.config_file = self.config_dir / 'config.json'
 
         # Ensure channels directory exists
         self.channels_dir.mkdir(parents=True, exist_ok=True)
         logger.info(f"ChannelConfigService initialized - managing {self.channels_dir}")
+
+    def _touch_config_timestamp(self) -> None:
+        """Touch the .config_updated file to signal config changes to other processes."""
+        try:
+            timestamp_file = self.config_dir / '.config_updated'
+            timestamp_file.touch()
+            logger.debug("Touched config timestamp file for cross-process cache invalidation")
+        except OSError as e:
+            logger.warning(f"Failed to touch config timestamp file: {e}")
 
     def _atomic_write_json(self, file_path: Path, data: Dict[str, Any]) -> None:
         """Write JSON data to file atomically to prevent corruption.
@@ -232,6 +242,9 @@ class ChannelConfigService:
             # Also update main config.json for consistency
             self._update_main_config(channel_id, config)
 
+            # Touch timestamp file for cross-process cache invalidation
+            self._touch_config_timestamp()
+
             return True
 
         except (IOError, OSError, PermissionError, TypeError, ValueError) as e:
@@ -253,6 +266,9 @@ class ChannelConfigService:
             if config_file.exists():
                 config_file.unlink()
                 logger.info(f"Deleted channel config for {channel_id}")
+
+                # Touch timestamp file for cross-process cache invalidation
+                self._touch_config_timestamp()
 
             # Also remove from main config.json
             self._remove_from_main_config(channel_id)

@@ -1,4 +1,4 @@
-<h4>Schedule New Task</h4>
+<h4>Schedule New Task {% if is_demo_mode %}<i class="bi bi-info-circle-fill text-warning ms-2" data-bs-toggle="tooltip" data-bs-placement="right" title="Demo: Containers 'ddc' and 'caddy' cannot be targeted"></i>{% endif %}</h4>
 <p class="form-text mb-3">Define tasks to be executed on a schedule (e.g., restart a container daily).</p>
 
 <!-- Task Add Form - Removed outer border/padding -->
@@ -10,7 +10,9 @@
                 <option selected disabled value="">Select active container...</option>
                 {% if active_containers %}
                     {% for container_name in active_containers %}
+                        {% if not (is_demo_mode and container_name in protected_containers) %}
                         <option value="{{ container_name }}">{{ container_name }}</option>
+                        {% endif %}
                     {% endfor %}
                 {% else %}
                     <option disabled>No active containers configured.</option>

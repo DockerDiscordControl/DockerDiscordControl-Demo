@@ -84,8 +84,8 @@
                             <div class="row g-3">
                                 <div class="col-md-6">
                                     <label class="form-label">Global Cooldown (Seconds)</label>
-                                    <input type="number" class="form-control" id="aasGlobalCooldown" min="0" value="30">
-                                    <div class="form-text">Minimum time between ANY auto-action executions. Prevents spam.</div>
+                                    <input type="number" class="form-control {% if is_demo_mode %}demo-disabled{% endif %}" id="aasGlobalCooldown" min="0" value="30" {% if is_demo_mode %}disabled{% endif %}>
+                                    <div class="form-text">Minimum time between ANY auto-action executions. Prevents spam.{% if is_demo_mode %} <strong>(Fixed at 30s on demo)</strong>{% endif %}</div>
                                 </div>
                                 <div class="col-md-6">
                                     <label class="form-label">Audit Log Channel</label>
@@ -151,8 +151,13 @@
                                    data-bs-placement="top"
                                    title="We recommend using a dedicated channel for Auto-Actions, especially when not using Allowed User IDs. This prevents unintended triggers from other messages."></i>
                             </label>
+                            {% if is_demo_mode %}
+                            <input type="text" class="form-control demo-disabled" id="aasRuleChannelIds" value="{{ demo_aas_channel }}" readonly>
+                            <div class="form-text text-warning"><i class="bi bi-lock"></i> Fixed to demo channel on demo server</div>
+                            {% else %}
                             <input type="text" class="form-control" id="aasRuleChannelIds" placeholder="e.g. 1234567890123456789" required>
                             <div class="form-text">Discord Channel ID(s) to monitor (comma-separated)</div>
+                            {% endif %}
                         </div>
                         <div class="col-md-6">
                             <label class="form-label">
@@ -323,6 +328,12 @@
         </div>
     </div>
 </div>
+
+<!-- Demo Mode Flag for JavaScript -->
+<script>
+    window.AAS_DEMO_MODE = {% if is_demo_mode %}true{% else %}false{% endif %};
+    window.AAS_DEMO_CHANNEL = "{{ demo_aas_channel|default('') }}";
+</script>
 
 <!-- Dark Theme Styling for AAS Modals -->
 <style>

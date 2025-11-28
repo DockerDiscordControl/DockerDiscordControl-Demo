@@ -1,0 +1,87 @@
+/* Demo Mode Styles for DDC Demo Server */
+
+/* Demo disabled elements */
+.demo-disabled {
+    opacity: 0.6 !important;
+    cursor: not-allowed !important;
+    pointer-events: none;
+}
+
+.demo-disabled:hover {
+    cursor: not-allowed !important;
+}
+
+/* Demo notice alert styling */
+.demo-notice {
+    background-color: #fff3cd;
+    border: 1px solid #ffc107;
+    border-radius: 4px;
+    padding: 10px 15px;
+    margin-bottom: 15px;
+    font-size: 0.9em;
+    color: #856404;
+}
+
+.demo-notice i {
+    margin-right: 8px;
+}
+
+/* Protected container card styling */
+.container-card.demo-protected {
+    opacity: 0.7;
+    border-color: #ffc107 !important;
+}
+
+.container-card.demo-protected .card-header {
+    background-color: rgba(255, 193, 7, 0.1);
+}
+
+.container-card.demo-protected .btn {
+    pointer-events: none;
+    opacity: 0.5;
+}
+
+/* Demo badge for protected containers */
+.demo-protected-badge {
+    background-color: #ffc107;
+    color: #000;
+    font-size: 0.75em;
+    padding: 2px 8px;
+    border-radius: 3px;
+    margin-left: 8px;
+}
+
+/* Input fields in demo mode */
+input.demo-disabled,
+select.demo-disabled,
+textarea.demo-disabled {
+    background-color: #e9ecef !important;
+}
+
+/* Buttons in demo mode */
+button.demo-disabled,
+.btn.demo-disabled {
+    opacity: 0.5;
+    pointer-events: none;
+}
+
+/* Demo section disabled - applies to entire sections */
+.demo-section-disabled input:not([type="hidden"]),
+.demo-section-disabled select,
+.demo-section-disabled textarea,
+.demo-section-disabled .btn:not(.btn-close) {
+    opacity: 0.6 !important;
+    pointer-events: none !important;
+    cursor: not-allowed !important;
+}
+
+.demo-section-disabled input:not([type="hidden"]),
+.demo-section-disabled select,
+.demo-section-disabled textarea {
+    background-color: #3a3f44 !important;
+}
+
+/* Protected row styling */
+.demo-protected-row {
+    background-color: rgba(255, 193, 7, 0.1) !important;
+}

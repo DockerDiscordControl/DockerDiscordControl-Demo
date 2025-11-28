@@ -74,14 +74,17 @@ class ContainerLogService:
 
     def __init__(self):
         self.logger = logger
-        self.default_container = 'dockerdiscordcontrol'
+        # Get own container name from environment (default: 'ddc' for modern installs)
+        self.default_container = os.environ.get('DDC_OWN_CONTAINER_NAME', 'ddc')
 
         # Log file paths (try Docker paths first, then development paths)
         self.log_paths = {
             'bot': ['/app/logs/bot.log', '/Volumes/appdata/dockerdiscordcontrol/logs/bot.log'],
             'discord': ['/app/logs/discord.log', '/Volumes/appdata/dockerdiscordcontrol/logs/discord.log'],
             'webui': ['/app/logs/webui_error.log', '/Volumes/appdata/dockerdiscordcontrol/logs/webui_error.log'],
-            'application': ['/app/logs/supervisord.log', '/Volumes/appdata/dockerdiscordcontrol/logs/supervisord.log']
+            'application': ['/app/logs/supervisord.log', '/Volumes/appdata/dockerdiscordcontrol/logs/supervisord.log'],
+            # Combined container logs - supervisord captures all process output
+            'container': ['/app/logs/supervisord.log', '/var/log/supervisor/supervisord.log']
         }
 
     def get_container_logs(self, request: ContainerLogRequest) -> LogResult:
@@ -103,31 +106,57 @@ class ContainerLogService:
                     status_code=400
                 )
 
-            # Step 2 & 3: Get logs using SERVICE FIRST pattern (async internally)
-            try:
-                # Check if we're in an async context
-                loop = asyncio.get_running_loop()
-                # We're in an async context but this method is sync
-                # Use run_in_executor to run the async function
-                import concurrent.futures
-                with concurrent.futures.ThreadPoolExecutor() as executor:
-                    logs_content = executor.submit(
-                        lambda: asyncio.run(self._get_container_logs_service_first(
+            # Step 2: Try file-based logs first (faster and works without Docker API)
+            # This is especially useful for own container logs
+            if request.container_name == self.default_container:
+                for log_path in self.log_paths.get('container', []):
+                    if os.path.exists(log_path):
+                        file_content = self._read_log_file(log_path, request.max_lines)
+                        if file_content and file_content.strip():
+                            self.logger.info(f"Successfully read container logs from file: {log_path}")
+                            return LogResult(success=True, content=file_content)
+
+            # Step 3: Fall back to Docker API for logs - use simple sync method first
+            logs_content = self._get_container_logs_sync(request.container_name, request.max_lines)
+
+            # If sync method fails, try async as last resort
+            if logs_content is None:
+                try:
+                    # Check if we're in an async context
+                    loop = asyncio.get_running_loop()
+                    # We're in an async context but this method is sync
+                    # Use run_in_executor to run the async function
+                    import concurrent.futures
+                    with concurrent.futures.ThreadPoolExecutor() as executor:
+                        logs_content = executor.submit(
+                            lambda: asyncio.run(self._get_container_logs_service_first(
+                                request.container_name,
+                                request.max_lines
+                            ))
+                        ).result()
+                except RuntimeError:
+                    # No event loop running (gevent thread), use asyncio.run() directly
+                    try:
+                        logs_content = asyncio.run(self._get_container_logs_service_first(
                             request.container_name,
                             request.max_lines
                         ))
-                    ).result()
-            except RuntimeError:
-                # No event loop running (gevent thread), use asyncio.run() directly
-                logs_content = asyncio.run(self._get_container_logs_service_first(
-                    request.container_name,
-                    request.max_lines
-                ))
+                    except Exception as e:
+                        self.logger.warning(f"Async Docker logs also failed: {e}")
 
             if logs_content is None:
+                # Last resort: try to read any available log file
+                for log_type, paths in self.log_paths.items():
+                    for log_path in paths:
+                        if os.path.exists(log_path):
+                            file_content = self._read_log_file(log_path, request.max_lines)
+                            if file_content and file_content.strip():
+                                self.logger.info(f"Fallback: read logs from {log_path}")
+                                return LogResult(success=True, content=f"[Reading from {log_type} log file]\n\n{file_content}")
+
                 return LogResult(
                     success=False,
-                    error=f"Container '{request.container_name}' not found",
+                    error=f"Container '{request.container_name}' not found and no log files available",
                     status_code=404
                 )
 
@@ -139,6 +168,15 @@ class ContainerLogService:
         except (ImportError, AttributeError, TypeError, ValueError, RuntimeError) as e:
             # Service/async errors (missing services, invalid types, runtime/event loop errors)
             self.logger.error(f"Service error retrieving container logs for {request.container_name}: {e}", exc_info=True)
+
+            # Try file fallback even on error
+            for log_type, paths in self.log_paths.items():
+                for log_path in paths:
+                    if os.path.exists(log_path):
+                        file_content = self._read_log_file(log_path, request.max_lines)
+                        if file_content and file_content.strip():
+                            return LogResult(success=True, content=f"[Reading from {log_type} log file - Docker API unavailable]\n\n{file_content}")
+
             return LogResult(
                 success=False,
                 error="An unexpected error occurred",
@@ -250,6 +288,24 @@ class ContainerLogService:
             # Fallback validation if utility is not available
             import re
             return bool(re.match(r'^[a-zA-Z0-9_.-]+$', container_name))
+
+    def _get_container_logs_sync(self, container_name: str, max_lines: int) -> Optional[str]:
+        """Simple synchronous Docker log retrieval - more reliable with gevent."""
+        try:
+            import docker
+            client = docker.from_env()
+            container = client.containers.get(container_name)
+            logs = container.logs(tail=max_lines, stdout=True, stderr=True)
+            return logs.decode('utf-8', errors='replace')
+        except docker.errors.NotFound:
+            self.logger.warning(f"Container not found: {container_name}")
+            return None
+        except docker.errors.APIError as e:
+            self.logger.error(f"Docker API error: {e}")
+            return None
+        except Exception as e:
+            self.logger.error(f"Error getting Docker logs sync: {e}", exc_info=True)
+            return None
 
     async def _get_docker_client_async(self):
         """Get Docker client with SERVICE FIRST pattern."""
@@ -378,19 +434,23 @@ class ContainerLogService:
     def _get_filtered_container_logs(self, max_lines: int, filter_patterns: List[str], no_logs_message: str) -> LogResult:
         """Get filtered logs from default container."""
         try:
-            # Get logs using SERVICE FIRST pattern (async internally)
-            # Get more logs to ensure we have enough after filtering
-            try:
-                # Try to get current event loop
-                loop = asyncio.get_running_loop()
-                # Create task for existing loop
-                task = loop.create_task(self._get_container_logs_service_first(self.default_container, max_lines * 2))
-                logs_str = asyncio.run_coroutine_threadsafe(task, loop).result()
-            except RuntimeError:
-                # No event loop running, use asyncio.run()
-                logs_str = asyncio.run(self._get_container_logs_service_first(self.default_container, max_lines * 2))
+            # Use simple sync method first (more reliable with gevent)
+            logs_str = self._get_container_logs_sync(self.default_container, max_lines * 2)
+
+            # Fallback to async if sync fails
             if logs_str is None:
-                return LogResult(success=False, error="Container not found", status_code=404)
+                try:
+                    loop = asyncio.get_running_loop()
+                    task = loop.create_task(self._get_container_logs_service_first(self.default_container, max_lines * 2))
+                    logs_str = asyncio.run_coroutine_threadsafe(task, loop).result()
+                except RuntimeError:
+                    try:
+                        logs_str = asyncio.run(self._get_container_logs_service_first(self.default_container, max_lines * 2))
+                    except Exception:
+                        pass
+
+            if logs_str is None:
+                return LogResult(success=True, content=no_logs_message)
 
             # Filter logs based on patterns
             filtered_lines = []
@@ -406,7 +466,7 @@ class ContainerLogService:
         except (AttributeError, TypeError, RuntimeError, ValueError) as e:
             # Async/data errors (attribute errors, type errors, runtime/async errors, value errors)
             self.logger.error(f"Error getting filtered container logs: {e}", exc_info=True)
-            raise
+            return LogResult(success=True, content=no_logs_message)
 
     def _read_log_file(self, file_path: str, max_lines: int) -> Optional[str]:
         """Read log file with line limiting."""

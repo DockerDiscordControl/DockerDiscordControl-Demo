@@ -1637,50 +1637,63 @@
         
         try {
             let endpoint = '';
+            // Direct URL construction - blueprint prefix is /logs_bp
+            const logsPrefix = '/logs_bp';
+            const containerName = "{{ own_container_name | default('ddc') }}";
             switch(logType) {
                 case 'container':
-                    endpoint = "{{ url_for('log_bp.get_container_logs', container_name='dockerdiscordcontrol') }}";
+                    endpoint = `${logsPrefix}/container_logs/${containerName}`;
                     break;
                 case 'bot':
-                    endpoint = "{{ url_for('log_bp.get_bot_logs') }}";
+                    endpoint = `${logsPrefix}/bot_logs`;
                     break;
                 case 'discord':
-                    endpoint = "{{ url_for('log_bp.get_discord_logs') }}";
+                    endpoint = `${logsPrefix}/discord_logs`;
                     break;
                 case 'webui':
-                    endpoint = "{{ url_for('log_bp.get_webui_logs') }}";
+                    endpoint = `${logsPrefix}/webui_logs`;
                     break;
                 case 'application':
-                    endpoint = "{{ url_for('log_bp.get_application_logs') }}";
+                    endpoint = `${logsPrefix}/application_logs`;
                     break;
                 case 'actions':
-                    endpoint = "{{ url_for('log_bp.get_action_logs') }}";
+                    endpoint = `${logsPrefix}/action_logs`;
                     break;
                 default:
-                    endpoint = "{{ url_for('log_bp.get_container_logs', container_name='dockerdiscordcontrol') }}";
+                    endpoint = `${logsPrefix}/container_logs/${containerName}`;
             }
+            console.log('Fetching logs from:', endpoint);
             
             const response = await fetch(endpoint);
+            console.log('Response status:', response.status, response.statusText);
             if (response.ok) {
                 const logs = await response.text();
-                // Directly display logs without filtering for now
-                logContentElement.textContent = logs;
-                
-                // Update timestamp
+                logContentElement.textContent = logs || 'No logs available';
+
                 if (logTimestamp) {
                     const now = new Date();
                     logTimestamp.textContent = `Last updated: ${now.toLocaleTimeString()}`;
                 }
                 return true;
             } else {
-                logContentElement.innerHTML = `<span class="text-danger">Error loading logs: ${response.statusText}</span>`;
+                // Get error details
+                let errorDetail = `HTTP ${response.status}`;
+                if (response.statusText) errorDetail += ` - ${response.statusText}`;
+                try {
+                    const bodyText = await response.text();
+                    if (bodyText && bodyText.length < 500) errorDetail = bodyText;
+                } catch (e) {
+                    console.error('Error reading response body:', e);
+                }
+                console.error('Log fetch failed:', errorDetail);
+                logContentElement.innerHTML = `<span class="text-danger">Error: ${errorDetail}</span>`;
             }
         } catch (error) {
             console.error('Error fetching logs:', error);
-            // Only show error if not auto-refreshing
             const autoRefreshToggle = document.getElementById('autoRefreshToggle');
             if (!autoRefreshToggle || !autoRefreshToggle.checked) {
-                logContentElement.innerHTML = `<span class="text-danger">Error loading logs: ${error.message}</span>`;
+                const errorMsg = error.message || error.toString() || 'Network error';
+                logContentElement.innerHTML = `<span class="text-danger">Fetch error: ${errorMsg}</span>`;
             }
         } finally {
             // Reset fetch in progress flag
@@ -2464,7 +2477,13 @@
                     }
                     html += '</ul></div>';
                 } else {
-                    html += '<div class="mb-3"><span class="text-warning"><strong>No port mappings detected</strong> - Web UI may not be accessible externally</span></div>';
+                    // In demo mode, Caddy handles external access - don't show warning
+                    const isDemoMode = {% if is_demo_mode %}true{% else %}false{% endif %};
+                    if (!isDemoMode) {
+                        html += '<div class="mb-3"><span class="text-warning"><strong>No port mappings detected</strong> - Web UI may not be accessible externally</span></div>';
+                    } else {
+                        html += '<div class="mb-3"><span class="text-success"><strong>Demo mode:</strong> External access via Caddy reverse proxy</span></div>';
+                    }
                 }
                 
                 // Issues

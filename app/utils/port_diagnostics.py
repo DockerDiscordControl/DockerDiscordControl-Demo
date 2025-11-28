@@ -261,11 +261,14 @@ class PortDiagnostics:
                     break
 
             if not web_port_mapped:
-                result['issues'].append(f"Port {self.EXPECTED_WEB_PORT} not mapped to any external port")
-                if self.host_info['is_unraid']:
-                    result['solutions'].extend(self._get_unraid_solutions())
-                else:
-                    result['solutions'].extend(self._get_docker_solutions())
+                # Skip this warning in demo mode - reverse proxy (Caddy) handles external access
+                is_demo_mode = os.environ.get('DDC_MODE') == 'demo'
+                if not is_demo_mode:
+                    result['issues'].append(f"Port {self.EXPECTED_WEB_PORT} not mapped to any external port")
+                    if self.host_info['is_unraid']:
+                        result['solutions'].extend(self._get_unraid_solutions())
+                    else:
+                        result['solutions'].extend(self._get_docker_solutions())
             else:
                 # Check if external ports are accessible
                 for ext_port in result['external_ports']:
@@ -368,7 +371,13 @@ class PortDiagnostics:
         }
 
         # Add platform-specific recommendations
-        if self.host_info['is_unraid']:
+        is_demo_mode = os.environ.get('DDC_MODE') == 'demo'
+        if is_demo_mode:
+            report['recommendations'].extend([
+                "Demo mode: External access via Caddy reverse proxy on port 443",
+                "Access Web UI at: https://demo.ddc.bot"
+            ])
+        elif self.host_info['is_unraid']:
             report['recommendations'].extend([
                 "For Unraid users: Ensure Community Apps template has correct port mapping",
                 "Check Unraid Docker settings: Host Port 8374 → Container Port 9374",
@@ -395,7 +404,12 @@ class PortDiagnostics:
         if report['port_check']['port_mappings']:
             logger.info(f"Port Mappings: {report['port_check']['port_mappings']}")
         else:
-            logger.warning("No port mappings detected - Web UI may not be accessible externally")
+            # In demo mode, Caddy reverse proxy handles external access
+            is_demo_mode = os.environ.get('DDC_MODE') == 'demo'
+            if is_demo_mode:
+                logger.info("Demo mode: External access via Caddy reverse proxy")
+            else:
+                logger.warning("No port mappings detected - Web UI may not be accessible externally")
 
         # Log issues and solutions
         if report['port_check']['issues']:

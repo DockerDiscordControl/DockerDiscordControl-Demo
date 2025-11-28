@@ -29,7 +29,8 @@ class ContainerConfigSaveService:
         """Initialize the ContainerConfigSaveService."""
         # Robust absolute path relative to project root (3 levels up from services/config/container_config_save_service.py)
         self.base_dir = Path(__file__).parents[2]
-        self.containers_dir = self.base_dir / 'config' / 'containers'
+        self.config_dir = self.base_dir / 'config'
+        self.containers_dir = self.config_dir / 'containers'
 
         # Ensure containers directory exists
         self.containers_dir.mkdir(parents=True, exist_ok=True)
@@ -78,11 +79,24 @@ class ContainerConfigSaveService:
                 raise
 
             logger.info(f"Saved container config for {container_name} to {config_file}")
+
+            # Touch timestamp file for cross-process cache invalidation
+            self._touch_config_timestamp()
+
             return True
 
         except (IOError, OSError, PermissionError, RuntimeError, json.JSONDecodeError) as e:
             logger.error(f"Error saving container config for {container_name}: {e}", exc_info=True)
             return False
+
+    def _touch_config_timestamp(self) -> None:
+        """Touch the .config_updated file to signal config changes to other processes."""
+        try:
+            timestamp_file = self.config_dir / '.config_updated'
+            timestamp_file.touch()
+            logger.debug(f"Touched config timestamp file for cross-process cache invalidation")
+        except OSError as e:
+            logger.warning(f"Failed to touch config timestamp file: {e}")
 
     def delete_container_config(self, container_name: str) -> bool:
         """Delete a container configuration file.
@@ -99,6 +113,9 @@ class ContainerConfigSaveService:
             if config_file.exists():
                 config_file.unlink()
                 logger.info(f"Deleted container config for {container_name}")
+
+                # Touch timestamp file for cross-process cache invalidation
+                self._touch_config_timestamp()
             else:
                 logger.debug(f"Container config for {container_name} doesn't exist")
 

@@ -23,58 +23,61 @@
                         {% set server_config = configured_servers.get(container.name, {}) %}
                         {% set is_selected = container.name in configured_servers %}
                         {% set info_config = container_info_data.get(container.name, {}) %}
-                        <tr data-container-id="{{ container.id }}" data-container-name="{{ container.name }}">
+                        {% set is_protected = is_demo_mode and container.name in protected_containers %}
+                        <tr data-container-id="{{ container.id }}" data-container-name="{{ container.name }}" {% if is_protected %}class="demo-protected-row"{% endif %}>
                             <td class="text-center align-middle">
                                 <span class="order-number me-1"></span>
-                                <button type="button" class="btn btn-sm btn-outline-secondary move-up-btn" data-immediate-effect="true" title="Move Up (+)" {% if loop.first %}disabled{% endif %}>
+                                <button type="button" class="btn btn-sm btn-outline-secondary move-up-btn requires-restart" title="Move Up (+)" {% if loop.first or is_protected %}disabled{% endif %}>
                                     +
                                 </button>
-                                <button type="button" class="btn btn-sm btn-outline-secondary move-down-btn" data-immediate-effect="true" title="Move Down (-)" {% if loop.last %}disabled{% endif %}>
+                                <button type="button" class="btn btn-sm btn-outline-secondary move-down-btn requires-restart" title="Move Down (-)" {% if loop.last or is_protected %}disabled{% endif %}>
                                     -
                                 </button>
                             </td>
                             <td class="text-center">
                                 <div class="form-check">
-                                    <input class="form-check-input server-checkbox" data-immediate-effect="true" type="checkbox" name="selected_servers" value="{{ container.name }}" id="select_{{ container.id }}" {% if is_selected %}checked{% endif %}>
+                                    <input class="form-check-input server-checkbox requires-restart {% if is_protected %}demo-disabled{% endif %}" type="checkbox" name="selected_servers" value="{{ container.name }}" id="select_{{ container.id }}" {% if is_selected %}checked{% endif %} {% if is_protected %}disabled{% endif %}>
                                     <label class="form-check-label visually-hidden" for="select_{{ container.id }}">Select</label>
                                 </div>
                             </td>
                             <td>
-                                <code class="text-info">{{ container.name }}</code><br>
+                                <code class="text-info">{{ container.name }}</code>
+                                {% if is_protected %}<span class="badge bg-warning text-dark ms-1">Protected</span>{% endif %}
+                                <br>
                                 <small class="text-light">Status: {{ container.status }}<br>Image: {{ container.image }}</small>
                             </td>
                             <td>
-                                <input type="text" class="form-control form-control-sm display-name-input" 
-                                       name="display_name_{{ container.name }}" 
-                                       value="{{ configured_servers.get(container.name, {}).get('display_name', container.name) }}" 
-                                       placeholder="Display Name for Bot" {% if not is_selected %}disabled{% endif %}>
+                                <input type="text" class="form-control form-control-sm display-name-input {% if is_protected %}demo-disabled{% endif %}"
+                                       name="display_name_{{ container.name }}"
+                                       value="{{ configured_servers.get(container.name, {}).get('display_name', container.name) }}"
+                                       placeholder="Display Name for Bot" {% if not is_selected or is_protected %}disabled{% endif %}>
                             </td>
                             <td class="text-center">
                                 <div class="form-check">
-                                    <input class="form-check-input action-checkbox" type="checkbox" name="allow_status_{{ container.name }}" value="1" id="status_{{ container.id }}" {% if 'status' in configured_servers.get(container.name, {}).get('allowed_actions', []) %}checked{% endif %} {% if not is_selected %}disabled{% endif %}>
+                                    <input class="form-check-input action-checkbox {% if is_protected %}demo-disabled{% endif %}" type="checkbox" name="allow_status_{{ container.name }}" value="1" id="status_{{ container.id }}" {% if 'status' in configured_servers.get(container.name, {}).get('allowed_actions', []) %}checked{% endif %} {% if not is_selected or is_protected %}disabled{% endif %}>
                                     <label class="form-check-label visually-hidden" for="status_{{ container.id }}">Status</label>
                                 </div>
                             </td>
                             <td class="text-center">
                                 <div class="form-check">
-                                    <input class="form-check-input action-checkbox" type="checkbox" name="allow_start_{{ container.name }}" value="1" id="start_{{ container.id }}" {% if 'start' in configured_servers.get(container.name, {}).get('allowed_actions', []) %}checked{% endif %} {% if not is_selected %}disabled{% endif %}>
+                                    <input class="form-check-input action-checkbox {% if is_protected %}demo-disabled{% endif %}" type="checkbox" name="allow_start_{{ container.name }}" value="1" id="start_{{ container.id }}" {% if 'start' in configured_servers.get(container.name, {}).get('allowed_actions', []) %}checked{% endif %} {% if not is_selected or is_protected %}disabled{% endif %}>
                                     <label class="form-check-label visually-hidden" for="start_{{ container.id }}">Start</label>
                                 </div>
                             </td>
                             <td class="text-center">
                                 <div class="form-check">
-                                    <input class="form-check-input action-checkbox" type="checkbox" name="allow_stop_{{ container.name }}" value="1" id="stop_{{ container.id }}" {% if 'stop' in configured_servers.get(container.name, {}).get('allowed_actions', []) %}checked{% endif %} {% if not is_selected %}disabled{% endif %}>
+                                    <input class="form-check-input action-checkbox {% if is_protected %}demo-disabled{% endif %}" type="checkbox" name="allow_stop_{{ container.name }}" value="1" id="stop_{{ container.id }}" {% if 'stop' in configured_servers.get(container.name, {}).get('allowed_actions', []) %}checked{% endif %} {% if not is_selected or is_protected %}disabled{% endif %}>
                                     <label class="form-check-label visually-hidden" for="stop_{{ container.id }}">Stop</label>
                                 </div>
                             </td>
                             <td class="text-center">
                                 <div class="form-check">
-                                    <input class="form-check-input action-checkbox" type="checkbox" name="allow_restart_{{ container.name }}" value="1" id="restart_{{ container.id }}" {% if 'restart' in configured_servers.get(container.name, {}).get('allowed_actions', []) %}checked{% endif %} {% if not is_selected %}disabled{% endif %}>
+                                    <input class="form-check-input action-checkbox {% if is_protected %}demo-disabled{% endif %}" type="checkbox" name="allow_restart_{{ container.name }}" value="1" id="restart_{{ container.id }}" {% if 'restart' in configured_servers.get(container.name, {}).get('allowed_actions', []) %}checked{% endif %} {% if not is_selected or is_protected %}disabled{% endif %}>
                                     <label class="form-check-label visually-hidden" for="restart_{{ container.id }}">Restart</label>
                                 </div>
                             </td>
                             <td class="text-center">
-                                <button type="button" class="btn btn-sm {% if info_config.get('enabled', False) %}btn-outline-info{% else %}btn-outline-secondary{% endif %} info-btn" data-container="{{ container.name }}" title="Edit Info" {% if not is_selected %}disabled{% endif %}>
+                                <button type="button" class="btn btn-sm {% if info_config.get('enabled', False) %}btn-outline-info{% else %}btn-outline-secondary{% endif %} info-btn {% if is_protected %}demo-disabled{% endif %}" data-container="{{ container.name }}" title="Edit Info" {% if not is_selected or is_protected %}disabled{% endif %}>
                                     <i class="bi bi-info-circle"></i>
                                 </button>
                             </td>
@@ -127,7 +130,7 @@
             <div class="modal-body">
                 <form id="containerInfoForm">
                     <input type="hidden" id="modal-container-name" name="container_name">
-                    
+
                     {# IP and Port Settings - Top Row #}
                     <div class="row mb-3">
                         <div class="col-md-6">
@@ -145,7 +148,7 @@
                             </div>
                         </div>
                     </div>
-                    
+
                     {# Checkboxes - Second Row #}
                     <div class="row mb-3">
                         <div class="col-md-6">
@@ -165,7 +168,7 @@
                             </div>
                         </div>
                     </div>
-                    
+
                     {# Custom Text - Bottom Section #}
                     <div class="mb-3">
                         <label for="modal-info-custom-text" class="form-label">
@@ -217,4 +220,4 @@
             </div>
         </div>
     </div>
-</div> 
+</div>

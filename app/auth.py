@@ -6,15 +6,44 @@
 # Licensed under the MIT License                                               #
 # ============================================================================ #
 
-from flask import current_app, jsonify, request
+from flask import current_app, jsonify, request, g
 from flask_httpauth import HTTPBasicAuth
 from werkzeug.security import check_password_hash
 from services.config.config_service import load_config
 from datetime import datetime, timedelta, timezone
+from functools import wraps
 import threading
 import discord
+import os
 
-auth = HTTPBasicAuth()
+# Check if demo mode is enabled
+DEMO_MODE = os.environ.get('DDC_MODE') == 'demo'
+
+
+class DemoHTTPBasicAuth(HTTPBasicAuth):
+    """Custom HTTPBasicAuth that bypasses authentication in demo mode."""
+
+    def login_required(self, f=None, role=None, optional=None):
+        """Override login_required to skip auth in demo mode."""
+        if DEMO_MODE:
+            # In demo mode, return the function unchanged (no auth required)
+            def decorator(func):
+                @wraps(func)
+                def decorated(*args, **kwargs):
+                    g.demo_user = True
+                    return func(*args, **kwargs)
+                return decorated
+
+            if f is not None:
+                return decorator(f)
+            return decorator
+
+        # Normal auth flow
+        return super().login_required(f, role, optional)
+
+
+# Use our custom auth class in demo mode
+auth = DemoHTTPBasicAuth()
 
 # Simple internal rate limiter implementation
 class SimpleRateLimiter:

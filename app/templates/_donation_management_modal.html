@@ -4,7 +4,7 @@
         <div class="modal-content bg-dark text-light">
             <div class="modal-header">
                 <h5 class="modal-title" id="donationManagementModalLabel">
-                    <i class="bi bi-currency-dollar"></i> Donation Management
+                    <i class="bi bi-currency-dollar"></i> Donation Management {% if is_demo_mode %}<i class="bi bi-info-circle-fill text-warning ms-2" data-bs-toggle="tooltip" data-bs-placement="right" title="View only on demo server"></i>{% endif %}
                 </h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
@@ -94,6 +94,7 @@
 
 <script>
 let donationData = [];
+const DONATION_MODAL_DEMO_MODE = {% if is_demo_mode %}true{% else %}false{% endif %};
 
 function openDonationManagementModal() {
     const modal = new bootstrap.Modal(document.getElementById('donationManagementModal'));
@@ -151,7 +152,7 @@ function updateDonationTable(donations) {
                         <th>Amount</th>
                         <th>Date</th>
                         <th>Type</th>
-                        <th>Actions</th>
+                        ${DONATION_MODAL_DEMO_MODE ? '' : '<th>Actions</th>'}
                     </tr>
                 </thead>
                 <tbody>
@@ -171,13 +172,13 @@ function updateDonationTable(donations) {
         const icon = isDeletion ? 'bi-arrow-return-right text-warning' : 'bi-person-fill text-primary';
         const badge = isDeletion ? 'bg-warning' : 'bg-success';
         const typeLabel = isDeletion ? 'deletion' : type;
-        const actionButton = isDeletion
+        const actionButton = DONATION_MODAL_DEMO_MODE ? '' : (isDeletion
             ? `<button class="btn btn-sm btn-success" onclick="restoreDonation(${index}, '${escapeHtml(donorName)}', ${amount})" title="Restore donation (remove deletion event)">
                    <i class="bi bi-arrow-counterclockwise"></i> Restore
                </button>`
             : `<button class="btn btn-sm btn-danger" onclick="deleteDonation(${index}, '${escapeHtml(donorName)}', ${amount})" title="Delete donation (adds compensation event)">
                    <i class="bi bi-trash"></i>
-               </button>`;
+               </button>`);
 
         tableHTML += `
             <tr id="donation-row-${index}" class="${rowClass}">
@@ -196,9 +197,7 @@ function updateDonationTable(donations) {
                 <td>
                     <span class="badge bg-info">${escapeHtml(typeLabel)}</span>
                 </td>
-                <td>
-                    ${actionButton}
-                </td>
+                ${DONATION_MODAL_DEMO_MODE ? '' : `<td>${actionButton}</td>`}
             </tr>
         `;
     });

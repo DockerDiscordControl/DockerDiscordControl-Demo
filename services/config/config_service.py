@@ -374,9 +374,9 @@ class ConfigService:
                         pass  # Ignore cleanup errors
                     raise write_error
 
-                # Invalidate cache after successful save
+                # Invalidate cache after successful save (with config_dir for cross-process signaling)
                 try:
-                    self._cache_service.invalidate_cache()
+                    self._cache_service.invalidate_cache(self.config_dir)
                     logger.debug("Cache invalidated after config save")
                 except (ConfigCacheError, IOError, OSError) as cache_error:
                     # Cache invalidation failure is not critical

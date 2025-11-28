@@ -4,11 +4,11 @@
         <div class="modal-content bg-dark text-light">
             <div class="modal-header">
                 <h5 class="modal-title" id="advancedSettingsModalLabel">
-                    <i class="bi bi-gear-fill"></i> Advanced Settings
+                    <i class="bi bi-gear-fill"></i> Advanced Settings {% if is_demo_mode %}<i class="bi bi-info-circle-fill text-warning ms-2" data-bs-toggle="tooltip" data-bs-placement="right" title="Read-only on demo server"></i>{% endif %}
                 </h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
-            <div class="modal-body">
+            <div class="modal-body {% if is_demo_mode %}demo-section-disabled{% endif %}">
                 <div class="alert alert-warning" role="alert">
                     <i class="bi bi-exclamation-triangle"></i> Advanced settings for fine-tuning performance. Changes require container restart to take effect.
                 </div>
@@ -222,7 +222,7 @@
                                     <a href="https://buymeacoffee.com/dockerdiscordcontrol/extras" target="_blank" rel="noopener noreferrer" class="btn btn-warning">
                                         <i class="bi bi-award"></i> Buy License
                                     </a>
-                                    <button type="button" class="btn btn-info" onclick="openDonationManagementModal()" title="Manage Donations">
+                                    <button type="button" class="btn btn-info" onclick="openDonationManagementModal()" title="Manage Donations" style="{% if is_demo_mode %}pointer-events: auto !important; opacity: 1 !important;{% endif %}">
                                         <i class="bi bi-list-ul"></i> Manage Donations
                                     </button>
                                 </div>
@@ -292,10 +292,12 @@
                 </div>
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{% if is_demo_mode %}Close{% else %}Cancel{% endif %}</button>
+                {% if not is_demo_mode %}
                 <button type="button" class="btn btn-success" onclick="saveAdvancedSettings()">
                     <i class="bi bi-save"></i> Save Settings
                 </button>
+                {% endif %}
             </div>
         </div>
     </div>

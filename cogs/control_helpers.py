@@ -93,15 +93,33 @@ async def container_select(original_ctx, original_current):
     return container_names_to_return[:25]
 
 def _channel_has_permission(channel_id: int, permission_key: str, config: dict = None) -> bool:
-    """Checks if a channel has a specific permission."""
+    """Checks if a channel has a specific permission.
+
+    Uses ChannelConfigService to load from individual channel config files.
+    Falls back to config.json channel_permissions if service unavailable.
+    """
+    # First try: Use ChannelConfigService (SERVICE FIRST approach)
+    try:
+        from services.config.channel_config_service import get_channel_config_service
+        channel_service = get_channel_config_service()
+        channel_config = channel_service.get_channel(str(channel_id))
+
+        if channel_config:
+            result = channel_config.get('commands', {}).get(permission_key, False)
+            logger.debug(f"_channel_has_permission: channel={channel_id}, key={permission_key}, result={result} (from ChannelConfigService)")
+            return result
+    except Exception as e:
+        logger.warning(f"_channel_has_permission: ChannelConfigService failed: {e}, falling back to config.json")
+
+    # Fallback: Use config.json channel_permissions (legacy behavior)
     if config is None:
-        config = load_config()  # Performance optimization: use cache if no config provided
+        config = load_config()
 
     channel_permissions = config.get('channel_permissions', {})
     channel_config = channel_permissions.get(str(channel_id))
 
     if channel_config:
-        # If the channel has an explicit configuration
+        # If the channel has an explicit configuration in config.json
         return channel_config.get('commands', {}).get(permission_key, False)
     else:
         # If no specific configuration, use default

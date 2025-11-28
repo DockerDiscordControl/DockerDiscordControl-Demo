@@ -1,25 +1,25 @@
 <hr class="my-4">
 <div id="language-settings" class="mb-3 card p-3">
-    <h4 class="mt-2">Language and Timezone</h4>
+    <h4 class="mt-2">Language and Timezone {% if is_demo_mode %}<i class="bi bi-info-circle-fill text-warning ms-2" data-bs-toggle="tooltip" data-bs-placement="right" title="Read-only on demo server"></i>{% endif %}</h4>
     <p class="form-text">Configure language and timezone settings for the system.</p>
     <div class="row">
         <div class="col-md-6 mb-3">
             <label for="language" class="form-label">Bot Language</label>
-            <select class="form-select" id="language" name="language" data-immediate-effect="true">
+            <select class="form-select requires-restart {% if is_demo_mode %}demo-disabled{% endif %}" id="language" name="language" data-immediate-effect="true" {% if is_demo_mode %}disabled{% endif %}>
                 <option value="en" {% if config.language == 'en' %}selected{% endif %}>English</option>
                 <option value="de" {% if config.language == 'de' %}selected{% endif %}>Deutsch</option>
                 <option value="fr" {% if config.language == 'fr' %}selected{% endif %}>Français</option>
             </select>
-            <div class="form-text">Language used by the bot in Discord. <strong>Changes take effect immediately!</strong></div>
+            <div class="form-text">Language used by the bot in Discord. {% if not is_demo_mode %}<strong>Changes take effect immediately!</strong>{% endif %}</div>
         </div>
         <div class="col-md-6 mb-3">
             <label for="timezone" class="form-label">Timezone</label>
-            <select class="form-select" id="timezone" name="timezone" data-immediate-effect="true">
+            <select class="form-select requires-restart {% if is_demo_mode %}demo-disabled{% endif %}" id="timezone" name="timezone" data-immediate-effect="true" {% if is_demo_mode %}disabled{% endif %}>
                 {% for tz in common_timezones %}
                     <option value="{{ tz }}" {% if config.timezone == tz %}selected{% endif %}>{{ tz }}</option>
                 {% endfor %}
             </select>
-            <div class="form-text">Timezone for the entire container (affects logs, scheduled tasks, and all time-related functionality). <strong>Changes take effect immediately!</strong></div>
+            <div class="form-text">Timezone for the entire container. {% if not is_demo_mode %}<strong>Changes take effect immediately!</strong>{% endif %}</div>
         </div>
     </div>
-</div> 
+</div>

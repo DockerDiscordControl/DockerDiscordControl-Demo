@@ -75,8 +75,7 @@ class DockerControlCog(commands.Cog, StatusHandlersMixin):
 
         # Basic initialization
         self.bot = bot
-        self._initial_config = config  # Only for startup, use self.config property for live access
-        self._config_service = None  # Lazy-loaded ConfigService reference
+        self.config = config
 
         # Check if donations are disabled and remove donation commands
         try:
@@ -270,24 +269,6 @@ class DockerControlCog(commands.Cog, StatusHandlersMixin):
 
         # Track if background loops have been started (to avoid double-start on reconnect)
         self._background_loops_started = False
-
-    @property
-    def config(self) -> dict:
-        """
-        Live configuration property - always returns fresh config from ConfigService.
-
-        This enables hot-reload of configuration without container restart.
-        Changes to channel_permissions, servers, admin_users etc. take effect immediately.
-        """
-        try:
-            if self._config_service is None:
-                from services.config.config_service import get_config_service
-                self._config_service = get_config_service()
-            return self._config_service.get_config()
-        except Exception as e:
-            # Fallback to initial config if ConfigService fails
-            logger.warning(f"ConfigService unavailable, using initial config: {e}")
-            return self._initial_config
 
     @commands.Cog.listener()
     async def on_ready(self):
@@ -1186,9 +1167,11 @@ class DockerControlCog(commands.Cog, StatusHandlersMixin):
                 logger.error("Could not load configuration for initial status send.")
                 return
 
-            # Get channel permissions from config
-            channel_permissions = current_config.get('channel_permissions', {})
-            logger.info(f"Found {len(channel_permissions)} channels in config")
+            # SERVICE FIRST: Use ChannelConfigService to get all channel configurations
+            from services.config.channel_config_service import get_channel_config_service
+            channel_service = get_channel_config_service()
+            channel_permissions = channel_service.get_all_channels()
+            logger.info(f"Found {len(channel_permissions)} channels in ChannelConfigService")
 
             # Process each channel
             for channel_id_str, channel_config in channel_permissions.items():
@@ -1411,15 +1394,12 @@ class DockerControlCog(commands.Cog, StatusHandlersMixin):
             # Import translation function locally to ensure it's accessible
             from .translation_manager import _ as translate
 
-            # Check if the channel has serverstatus permission AND is NOT a control channel
-            # Status commands (/ss, /serverstatus) should ONLY work in status channels
+            # Check if the channel has serverstatus permission
             channel_has_status_perm = _channel_has_permission(ctx.channel.id, 'serverstatus', self.config)
-            channel_is_control = _channel_has_permission(ctx.channel.id, 'control', self.config)
-
-            if not channel_has_status_perm or channel_is_control:
+            if not channel_has_status_perm:
                 embed = discord.Embed(
                     title=translate("⚠️ Permission Denied"),
-                    description=translate("The /serverstatus command is only allowed in status channels, not in control channels."),
+                    description=translate("The /serverstatus command can only be used in Status channels."),
                     color=discord.Color.red()
                 )
                 await ctx.followup.send(embed=embed, ephemeral=True)
@@ -1571,26 +1551,21 @@ class DockerControlCog(commands.Cog, StatusHandlersMixin):
             # Defer the response to prevent timeout
             await ctx.defer(ephemeral=False)  # Not ephemeral, like /ss
 
-            # Import translation function locally to ensure it's accessible
-            from .translation_manager import _ as translate
-
-            # Check if the channel has control permission
-            # Control commands work in channels with control=True (regardless of serverstatus setting)
-            channel_has_control_perm = _channel_has_permission(ctx.channel.id, 'control', self.config)
-
-            if not channel_has_control_perm:
-                embed = discord.Embed(
-                    title=translate("⚠️ Permission Denied"),
-                    description=translate("The /control command is only allowed in control channels, not in status channels."),
-                    color=discord.Color.red()
-                )
-                await ctx.followup.send(embed=embed, ephemeral=True)
-                return
-
             # Load configuration
             config = load_config()
             if not config:
                 await ctx.followup.send(_("❌ Could not load configuration."))
+                return
+
+            # Check if the channel has control permission
+            channel_has_control_perm = _channel_has_permission(ctx.channel.id, 'control', config)
+            if not channel_has_control_perm:
+                embed = discord.Embed(
+                    title="⚠️ Permission Denied",
+                    description="The /control command can only be used in Control channels.",
+                    color=discord.Color.red()
+                )
+                await ctx.followup.send(embed=embed)
                 return
 
             # Get all server configurations
@@ -3357,13 +3332,27 @@ class DockerControlCog(commands.Cog, StatusHandlersMixin):
     @tasks.loop(seconds=30)
     async def inactivity_check_loop(self):
         """Checks for channel inactivity and regenerates messages if needed."""
+        # Check if demo reset is in progress (to prevent race condition)
+        if getattr(demo_hourly_cleanup, '_reset_in_progress', False):
+            logger.info("Inactivity check loop: Skipping - demo reset in progress")
+            return
+
         config = load_config()
         if not config:
             logger.error("Inactivity Check Loop: Could not load configuration. Skipping cycle.")
             return
 
         now_utc = datetime.now(timezone.utc)
-        channel_permissions = config.get('channel_permissions', {})
+
+        # SERVICE FIRST: Use ChannelConfigService to get all channel configurations
+        try:
+            from services.config.channel_config_service import get_channel_config_service
+            channel_service = get_channel_config_service()
+            channel_permissions = channel_service.get_all_channels()
+            logger.debug(f"Inactivity check: Using ChannelConfigService with {len(channel_permissions)} channels")
+        except Exception as e:
+            logger.warning(f"Inactivity check: ChannelConfigService failed: {e}, falling back to config.json")
+            channel_permissions = config.get('channel_permissions', {})
 
         try:
             if not self.initial_messages_sent:
@@ -3433,23 +3422,7 @@ class DockerControlCog(commands.Cog, StatusHandlersMixin):
                             continue
 
                         # Check if the last message is from our bot
-                        # Safety check: ensure bot.user is available
-                        if self.bot.user is None:
-                            logger.warning(f"Bot user is None, cannot check message author. Skipping channel {channel_id}")
-                            continue
-
-                        last_msg = history[0]
-                        bot_user_id = self.bot.user.id
-
-                        # Log detailed info for debugging recreation issues
-                        logger.debug(f"Channel {channel.name}: Last message author={last_msg.author.id} ({last_msg.author.name}), bot_id={bot_user_id}")
-
-                        # Check if last message is from our bot (by user ID or application ID)
-                        bot_app_id = getattr(self.bot, 'application_id', None)
-                        is_from_bot = (last_msg.author.id == bot_user_id or
-                                      (hasattr(last_msg, 'application_id') and bot_app_id and last_msg.application_id == bot_app_id))
-
-                        if is_from_bot:
+                        if history[0].author.id == self.bot.user.id:
                             # If the last message is from our bot, we should not regenerate
                             # Reset the timer instead, since the bot was the last to post
                             self.last_channel_activity[channel_id] = now_utc
@@ -3457,7 +3430,7 @@ class DockerControlCog(commands.Cog, StatusHandlersMixin):
                             continue
 
                         # The last message is not from our bot, regenerate
-                        logger.info(f"Last message in channel {channel.name} is NOT from our bot (author_id={last_msg.author.id}, bot_id={bot_user_id}). Will regenerate")
+                        logger.info(f"Last message in channel {channel.name} is NOT from our bot. Will regenerate")
 
                         # Determine the mode: control or status
                         has_control_permission = _channel_has_permission(channel_id, 'control', config)
@@ -4564,6 +4537,198 @@ def setup(bot):
     # Start the Initial Animation Cache Warmup
     cog.initial_animation_cache_warmup.start()
     logger.info("Initial Animation Cache Warmup startup task initiated")
+
+    # Demo Mode: Hourly channel cleanup task
+    if os.environ.get('DDC_MODE') == 'demo':
+        DEMO_RESET_MESSAGE = "🔄 **Demo Reset** - Configuration restored. Next reset in 1 hour.\n\n_This is a demo server. All changes reset hourly._"
+        DEMO_CONTAINERS_TO_STOP = ['minecraft', 'valheim']  # Containers to stop on reset
+        DEMO_UPDATE_CHANNEL_ID = 1443591386292289678  # Update channel - gets fully purged
+        DEMO_RESET_IN_PROGRESS = False  # Flag to prevent race conditions with inactivity check
+
+        @tasks.loop(seconds=30)
+        async def demo_hourly_cleanup():
+            """Post reset notification to all configured channels at the top of every hour."""
+            try:
+                from datetime import datetime
+                from pathlib import Path
+                import docker as docker_lib
+                now = datetime.now()
+
+                # Check for force reset trigger file
+                force_reset_file = Path(__file__).parents[1] / 'config' / '.force_demo_reset'
+                force_reset = force_reset_file.exists()
+
+                if force_reset:
+                    # Remove trigger file immediately
+                    try:
+                        force_reset_file.unlink()
+                        logger.info("Demo cleanup: Force reset triggered via API")
+                    except Exception as e:
+                        logger.warning(f"Could not remove force reset file: {e}")
+                else:
+                    # Only run at minute 0 (top of the hour)
+                    if now.minute != 0:
+                        return
+                    # Avoid running multiple times in the same minute
+                    if hasattr(demo_hourly_cleanup, '_last_run_hour') and demo_hourly_cleanup._last_run_hour == now.hour:
+                        return
+                    demo_hourly_cleanup._last_run_hour = now.hour
+
+                logger.info("Demo cleanup: Hourly reset triggered")
+
+                # Set flag to prevent inactivity check from running during reset
+                demo_hourly_cleanup._reset_in_progress = True
+
+                # Reset Mech to Level 1 with Power 3 and Evolution 0
+                try:
+                    import json
+                    from pathlib import Path
+                    from services.mech.progress_paths import get_progress_paths
+
+                    paths = get_progress_paths()
+
+                    # Clear event log
+                    if paths.event_log.exists():
+                        paths.event_log.write_text("", encoding="utf-8")
+
+                    # Reset sequence counter
+                    paths.seq_file.write_text("0", encoding="utf-8")
+
+                    # Write fresh snapshot with Power=3, Level=1, Evolution=0
+                    snapshot_file = paths.snapshot_for("main")
+                    demo_snapshot = {
+                        "mech_id": "main",
+                        "level": 1,
+                        "evo_acc": 0,  # Evolution level 0
+                        "power_acc": 300,  # Power of 3 ($3.00 = 300 cents)
+                        "goal_requirement": 400,
+                        "difficulty_bin": 1,
+                        "goal_started_at": now.isoformat(),
+                        "last_decay_day": now.date().isoformat(),
+                        "power_decay_per_day": 100,
+                        "version": 0,
+                        "last_event_seq": 0,
+                        "mech_type": "default",
+                        "last_user_count_sample": 0,
+                        "cumulative_donations_cents": 300,  # $3.00 initial gift
+                    }
+                    snapshot_file.parent.mkdir(parents=True, exist_ok=True)
+                    with snapshot_file.open("w", encoding="utf-8") as f:
+                        json.dump(demo_snapshot, f, indent=2)
+
+                    # Clear mech caches
+                    try:
+                        from services.donation.unified.processors import clear_mech_cache
+                        clear_mech_cache()
+                    except Exception:
+                        pass
+
+                    logger.info("Demo cleanup: Mech reset to Level 1, Power 3, Evolution 0")
+                except Exception as e:
+                    logger.error(f"Demo cleanup: Mech reset error: {e}")
+
+                # Clear scheduler cache to reload tasks from file
+                try:
+                    from services.scheduling.runtime import get_scheduler_runtime
+                    runtime = get_scheduler_runtime()
+                    runtime.clear_tasks_cache()
+                    logger.info("Demo cleanup: Scheduler cache cleared")
+                except Exception as e:
+                    logger.error(f"Demo cleanup: Scheduler cache clear error: {e}")
+
+                # Stop specified containers
+                try:
+                    docker_client = docker_lib.from_env()
+                    for container_name in DEMO_CONTAINERS_TO_STOP:
+                        try:
+                            container = docker_client.containers.get(container_name)
+                            if container.status == 'running':
+                                container.stop(timeout=10)
+                                logger.info(f"Demo cleanup: Stopped container {container_name}")
+                        except docker_lib.errors.NotFound:
+                            logger.debug(f"Demo cleanup: Container {container_name} not found")
+                        except Exception as e:
+                            logger.warning(f"Demo cleanup: Could not stop {container_name}: {e}")
+                except Exception as e:
+                    logger.error(f"Demo cleanup: Docker error: {e}")
+
+                # Get all configured channels from ChannelConfigService
+                from services.config.channel_config_service import get_channel_config_service
+                channel_service = get_channel_config_service()
+                channel_permissions = channel_service.get_all_channels()
+
+                if not channel_permissions:
+                    logger.warning("Demo cleanup: No channels configured")
+                    return
+
+                for channel_id_str in channel_permissions.keys():
+                    try:
+                        channel = bot.get_channel(int(channel_id_str))
+                        if not channel:
+                            logger.debug(f"Demo cleanup: Channel {channel_id_str} not found")
+                            continue
+
+                        # Delete ALL messages in the channel (bot and user messages)
+                        try:
+                            deleted = await channel.purge(limit=100)
+                            logger.info(f"Demo cleanup: Purged {len(deleted)} messages from {channel.name}")
+                        except Exception as e:
+                            logger.warning(f"Demo cleanup: Could not purge messages in {channel.name}: {e}")
+
+                        # Post new reset notification
+                        await channel.send(DEMO_RESET_MESSAGE)
+                        logger.info(f"Demo cleanup: Posted reset message to {channel.name}")
+
+                    except discord.errors.Forbidden:
+                        logger.warning(f"Demo cleanup: Missing permissions for channel {channel_id_str}")
+                    except Exception as e:
+                        logger.error(f"Demo cleanup: Error in channel {channel_id_str}: {e}")
+
+                # Fully purge the Update channel (delete ALL messages including from users/other bots)
+                try:
+                    update_channel = bot.get_channel(DEMO_UPDATE_CHANNEL_ID)
+                    if update_channel:
+                        try:
+                            deleted = await update_channel.purge(limit=100)
+                            logger.info(f"Demo cleanup: Purged {len(deleted)} messages from Update channel")
+                        except Exception as e:
+                            logger.warning(f"Demo cleanup: Could not purge Update channel: {e}")
+
+                        # Post reset message to Update channel
+                        await update_channel.send(DEMO_RESET_MESSAGE)
+                        logger.info("Demo cleanup: Posted reset message to Update channel")
+                except Exception as e:
+                    logger.warning(f"Demo cleanup: Update channel error: {e}")
+
+                # Stop containers AGAIN after all cleanup (in case config restore started them)
+                await asyncio.sleep(2)  # Wait for any config-triggered actions
+                try:
+                    docker_client = docker_lib.from_env()
+                    for container_name in DEMO_CONTAINERS_TO_STOP:
+                        try:
+                            container = docker_client.containers.get(container_name)
+                            if container.status == 'running':
+                                container.stop(timeout=10)
+                                logger.info(f"Demo cleanup: Final stop of container {container_name}")
+                        except docker_lib.errors.NotFound:
+                            pass
+                        except Exception as e:
+                            logger.warning(f"Demo cleanup: Final stop failed for {container_name}: {e}")
+                except Exception as e:
+                    logger.debug(f"Demo cleanup: Final container stop error: {e}")
+
+                # Clear the reset flag
+                demo_hourly_cleanup._reset_in_progress = False
+                logger.info("Demo cleanup: Reset completed, inactivity check re-enabled")
+
+            except Exception as e:
+                logger.error(f"Demo cleanup task error: {e}", exc_info=True)
+                # Ensure flag is cleared even on error
+                demo_hourly_cleanup._reset_in_progress = False
+
+        demo_hourly_cleanup.start()
+        cog.demo_hourly_cleanup = demo_hourly_cleanup
+        logger.info("Demo mode: Hourly reset notification task started for all configured channels")
 
     bot.add_cog(cog)
     logger.info("[SETUP DEBUG] DockerControlCog added to bot")

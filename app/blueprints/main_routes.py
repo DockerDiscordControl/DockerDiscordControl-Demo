@@ -133,6 +133,27 @@ def save_config_api():
     logger = current_app.logger
     logger.info("save_config_api (blueprint) called...")
 
+    # Demo Mode Validation
+    from app.demo_mode import is_demo_mode, PROTECTED_CONTAINERS
+    if is_demo_mode():
+        form_data = request.form.to_dict(flat=False)
+        demo_violations = []
+
+        # Check if user is trying to SELECT a protected container (activate it)
+        selected_servers = form_data.get('selected_servers', [])
+        for protected in PROTECTED_CONTAINERS:
+            if protected in selected_servers:
+                demo_violations.append(f"Cannot activate protected container: {protected}")
+
+        if demo_violations:
+            logger.warning(f"Demo mode violations detected: {demo_violations}")
+            return jsonify({
+                'success': False,
+                'message': 'Protected containers (ddc, caddy) cannot be modified on the demo server',
+                'demo_mode': True,
+                'violations': demo_violations
+            }), 403
+
     try:
         # Use ConfigurationSaveService to handle business logic
         from services.web.configuration_save_service import get_configuration_save_service, ConfigurationSaveRequest
@@ -1508,6 +1529,53 @@ def reset_mech_to_level_1():
             'success': False,
             'error': 'Data error: Failed to process reset operation'
         }), 500
+
+@main_bp.route('/api/demo/force-reset', methods=['POST'])
+def force_demo_reset():
+    """Force a demo reset (triggers the hourly reset immediately).
+
+    This creates a trigger file that the bot's demo_hourly_cleanup task
+    checks every 30 seconds. When found, it triggers the reset notification
+    and removes the trigger file.
+
+    Only works in demo mode (DDC_MODE=demo).
+    """
+    try:
+        from app.demo_mode import is_demo_mode
+        from pathlib import Path
+
+        if not is_demo_mode():
+            return jsonify({
+                'success': False,
+                'error': 'Force reset is only available in demo mode'
+            }), 403
+
+        # Create the trigger file
+        # Path: app/blueprints/main_routes.py -> parents[2] = project root
+        trigger_file = Path(__file__).parents[2] / 'config' / '.force_demo_reset'
+        trigger_file.touch()
+
+        current_app.logger.info("Demo force reset triggered via API - trigger file created")
+
+        return jsonify({
+            'success': True,
+            'message': 'Demo reset triggered. The bot will process it within 30 seconds.',
+            'trigger_file': str(trigger_file)
+        })
+
+    except (IOError, OSError) as e:
+        current_app.logger.error(f"Failed to create demo reset trigger file: {e}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': 'Failed to create trigger file'
+        }), 500
+    except (ImportError, AttributeError) as e:
+        current_app.logger.error(f"Demo mode import error: {e}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': 'Demo mode not available'
+        }), 500
+
 
 @main_bp.route('/api/mech/status', methods=['GET'])
 @auth.login_required

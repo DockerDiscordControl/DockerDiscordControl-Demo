@@ -20,6 +20,9 @@ from dataclasses import dataclass
 # SERVICE FIRST: Import ServerConfigService for server configuration access
 from services.config.server_config_service import get_server_config_service
 
+# Demo Mode helpers
+from app.demo_mode import is_demo_mode, get_demo_notice, get_demo_context, PROTECTED_CONTAINERS
+
 logger = logging.getLogger(__name__)
 
 # Days of week for schedule display
@@ -508,6 +511,9 @@ class ConfigurationPageService:
         config_with_env['env'] = advanced_settings
         config_with_env['donation_disable_key'] = donation_settings['current_donation_key']
 
+        # Get demo mode context
+        demo_context = get_demo_context()
+
         return {
             'config': config_with_env,
             'DEFAULT_CONFIG': default_config,
@@ -527,7 +533,14 @@ class ConfigurationPageService:
             'version_tag': timestamp,
             'show_clear_logs_button': config.get('show_clear_logs_button', True),
             'show_download_logs_button': config.get('show_download_logs_button', True),
-            'tasks': tasks_data['formatted_tasks']
+            'tasks': tasks_data['formatted_tasks'],
+            # Demo mode context
+            'is_demo_mode': demo_context['is_demo_mode'],
+            'demo_notice': demo_context['demo_notice'],
+            'protected_containers': demo_context['protected_containers'],
+            'demo_aas_channel': demo_context['demo_aas_channel'],
+            # Own container name for logs
+            'own_container_name': os.environ.get('DDC_OWN_CONTAINER_NAME', 'ddc')
         }
 
 

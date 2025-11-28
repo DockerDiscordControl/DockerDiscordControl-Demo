@@ -20,6 +20,24 @@ from typing import Optional, Dict, Any, Tuple
 
 logger = logging.getLogger(__name__)
 
+# Demo mode constants
+DEMO_MAX_MECH_LEVEL = 3
+DEMO_MECH_NOTICE = "🔒 Higher evolution levels are not available on the demo server. Visit ddc.bot for the full experience!"
+
+def _is_demo_mode() -> bool:
+    """Check if running in demo mode."""
+    try:
+        from app.demo_mode import is_demo_mode
+        return is_demo_mode()
+    except ImportError:
+        return False
+
+def _cap_level_for_demo(level: int) -> int:
+    """Cap evolution level for demo mode."""
+    if _is_demo_mode() and level > DEMO_MAX_MECH_LEVEL:
+        return DEMO_MAX_MECH_LEVEL
+    return level
+
 @dataclass
 class EvolutionLevelInfo:
     """SERVICE FIRST: Evolution level information (replaces evolution_config_manager.EvolutionLevel)"""
@@ -242,17 +260,28 @@ def get_evolution_info(total_donations: float) -> dict:
         Dictionary with level, name, color, next_threshold, descriptions
     """
     level = get_evolution_level(total_donations)
+    is_demo = _is_demo_mode()
 
     # Use JSON config as authoritative source
     config_service = get_evolution_config_service()
     config = config_service._load_config()
     base_costs = config.get("base_evolution_costs", {})
 
-    level_data = base_costs.get(str(level), {})
-    name = level_data.get("name", f"Level {level}")
+    # Demo mode: Cap displayed level at 3
+    display_level = level
+    if is_demo and level > DEMO_MAX_MECH_LEVEL:
+        display_level = DEMO_MAX_MECH_LEVEL
+
+    level_data = base_costs.get(str(display_level), {})
+    name = level_data.get("name", f"Level {display_level}")
     color = level_data.get("color", "#888888")
     description = level_data.get("description", "")
     current_threshold = level_data.get("cost", 0)
+
+    # Demo mode: Override name/description for capped levels
+    if is_demo and level > DEMO_MAX_MECH_LEVEL:
+        name = f"Level {level} - Demo Limited"
+        description = DEMO_MECH_NOTICE
 
     # Calculate next evolution threshold and sneak peek
     next_threshold = None
@@ -260,13 +289,20 @@ def get_evolution_info(total_donations: float) -> dict:
     next_description = None
     amount_needed = None
 
-    if level < 11:  # Now goes up to 11
+    # Demo mode: Cap next level info at level 3
+    max_level = DEMO_MAX_MECH_LEVEL if is_demo else 11
+
+    if level < max_level:
         next_level_data = base_costs.get(str(level + 1), {})
         next_threshold = next_level_data.get("cost")
         if next_threshold is not None:
             next_name = next_level_data.get("name", f"Level {level + 1}")
             next_description = next_level_data.get("description", "")
             amount_needed = next_threshold - total_donations
+    elif is_demo and level >= DEMO_MAX_MECH_LEVEL:
+        # Demo mode: Show demo notice for next level
+        next_name = "More levels available!"
+        next_description = DEMO_MECH_NOTICE
 
     return {
         'level': level,
@@ -278,7 +314,8 @@ def get_evolution_info(total_donations: float) -> dict:
         'next_name': next_name,
         'next_description': next_description,
         'amount_needed': amount_needed,
-        'progress_to_next': None if next_threshold is None else min(100, (total_donations - current_threshold) / (next_threshold - current_threshold) * 100)
+        'progress_to_next': None if next_threshold is None else min(100, (total_donations - current_threshold) / (next_threshold - current_threshold) * 100),
+        'is_demo_limited': is_demo and level >= DEMO_MAX_MECH_LEVEL
     }
 
 def get_mech_filename(evolution_level: int) -> str:
@@ -291,7 +328,9 @@ def get_mech_filename(evolution_level: int) -> str:
     Returns:
         Filename for the spritesheet
     """
-    return f"mech_level_{evolution_level}.png"
+    # Demo mode: Cap at level 3 for visuals
+    capped_level = _cap_level_for_demo(evolution_level)
+    return f"mech_level_{capped_level}.png"
 
 def get_evolution_level_info(level: int) -> Optional[EvolutionLevelInfo]:
     """
@@ -303,6 +342,14 @@ def get_evolution_level_info(level: int) -> Optional[EvolutionLevelInfo]:
     Returns:
         EvolutionLevelInfo or None if level doesn't exist
     """
+    # Demo mode: Cap level and modify descriptions
+    is_demo = _is_demo_mode()
+    original_level = level
+
+    if is_demo and level > DEMO_MAX_MECH_LEVEL:
+        # Use level 3 data as base but modify for demo
+        level = DEMO_MAX_MECH_LEVEL
+
     # Use JSON config as authoritative source
     config_service = get_evolution_config_service()
     config = config_service._load_config()
@@ -328,10 +375,18 @@ def get_evolution_level_info(level: int) -> Optional[EvolutionLevelInfo]:
     except Exception as e:
         logger.error(f"Error loading decay config in evolutions: {e}")
 
+    # Demo mode: Replace name and description for capped levels
+    name = level_data.get("name", f"Level {level}")
+    description = level_data.get("description", "")
+
+    if is_demo and original_level > DEMO_MAX_MECH_LEVEL:
+        name = f"Level {original_level} - Demo Limited"
+        description = DEMO_MECH_NOTICE
+
     return EvolutionLevelInfo(
-        level=level,
-        name=level_data.get("name", f"Level {level}"),
-        description=level_data.get("description", ""),
+        level=original_level,  # Return the original requested level
+        name=name,
+        description=description,
         color=level_data.get("color", "#888888"),
         base_cost=level_data.get("cost", 0),
         power_max=level_data.get("power_max", 100),
@@ -394,10 +449,16 @@ def get_all_evolution_levels() -> Dict[int, EvolutionLevelInfo]:
     config_service = get_evolution_config_service()
     config = config_service._load_config()
     levels = {}
+    is_demo = _is_demo_mode()
 
     for level_str, level_data in config.get("base_evolution_costs", {}).items():
         try:
             level = int(level_str)
+
+            # Demo mode: Only include levels 1-3
+            if is_demo and level > DEMO_MAX_MECH_LEVEL:
+                continue
+
             levels[level] = EvolutionLevelInfo(
                 level=level,
                 name=level_data.get("name", f"Level {level}"),

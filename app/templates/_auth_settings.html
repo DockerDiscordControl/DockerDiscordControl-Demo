@@ -1,10 +1,12 @@
 <hr class="my-4">
 <div id="auth-settings" class="mb-3 card p-3">
-    <h4>Web UI Authentication</h4>
+    <h4>Web UI Authentication {% if is_demo_mode %}<i class="bi bi-info-circle-fill text-warning ms-2" data-bs-toggle="tooltip" data-bs-placement="right" title="Read-only on demo server"></i>{% endif %}</h4>
     <p class="form-text">
         Configure the password for accessing this web interface. The username is fixed to <code>admin</code>.
-        If you forget the password, you can manually edit the <code>config.json</code> file and either remove the <code>web_ui_password_hash</code> line 
+        {% if not is_demo_mode %}
+        If you forget the password, you can manually edit the <code>config.json</code> file and either remove the <code>web_ui_password_hash</code> line
         (which will reset it to the default 'admin' on next startup) or replace the hash value.
+        {% endif %}
     </p>
     <div class="row">
         <div class="col-md-6 mb-3">
@@ -13,10 +15,10 @@
         </div>
         <div class="col-md-6 mb-3">
             <label for="new_web_ui_password" class="form-label">New Password (leave blank to keep current)</label>
-            <input type="password" class="form-control" data-immediate-effect="true" id="new_web_ui_password" name="new_web_ui_password" placeholder="Enter new password">
+            <input type="password" class="form-control requires-restart {% if is_demo_mode %}demo-disabled{% endif %}" id="new_web_ui_password" name="new_web_ui_password" placeholder="Enter new password" {% if is_demo_mode %}disabled{% endif %}>
         </div>
     </div>
-    
+
     <div class="text-center mt-3">
         <button type="button" class="btn btn-outline-info me-2" data-bs-toggle="modal" data-bs-target="#spamProtectionModal">
             <i class="bi bi-shield-check"></i> Spam Protection Settings
@@ -28,4 +30,4 @@
             <i class="bi bi-tools"></i> System Diagnostics
         </button>
     </div>
-</div> 
+</div>

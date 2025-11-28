@@ -19,6 +19,7 @@ Licensed under the MIT License
     <link href="{{ url_for('static', filename='vendor/bootstrap/css/bootstrap.min.css') }}" rel="stylesheet">
     <link href="{{ url_for('static', filename='vendor/bootstrap-icons/font/bootstrap-icons.min.css') }}" rel="stylesheet">
     <link href="{{ url_for('static', filename='css/tasks.css') }}" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/demo.css') }}" rel="stylesheet">
     <style data-version="{{ now }}">
         :root {
             --primary-color: #36cfff;
@@ -247,11 +248,13 @@ Licensed under the MIT License
         </div>
     </div>
 
+    {% if not is_demo_mode %}
     <div id="restart-required-alert" class="alert alert-info position-fixed bottom-0 end-0 m-3 shadow d-flex align-items-center force-hide" role="alert" style="display: none; z-index:1051; padding: 0.5rem 1rem;">
-        <strong class="me-2">Info:</strong> 
+        <strong class="me-2">Info:</strong>
         <span>Container restart required for changes!</span>
         <button type="button" class="btn-close ms-3" data-bs-dismiss="alert" aria-label="Close"></button>
     </div>
+    {% endif %}
 
     <footer class="text-center fixed-bottom py-2">
         <p style="color: #6c757d; font-size: 0.8em; margin-bottom: 0;">

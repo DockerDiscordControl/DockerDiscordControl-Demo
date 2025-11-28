@@ -339,9 +339,9 @@ class ConfigurationSaveService:
     def _handle_critical_changes(self, changes: 'CriticalChanges') -> None:
         """Handle critical settings changes by invalidating caches."""
         try:
-            # Invalidate ConfigService cache
+            # Invalidate ConfigService cache (with config_dir for cross-process signaling)
             try:
-                self.config_service._cache_service.invalidate_cache()
+                self.config_service._cache_service.invalidate_cache(self.config_service.config_dir)
                 self.logger.info("ConfigService cache invalidated due to critical settings change")
             except (AttributeError, RuntimeError) as cache_error:
                 # Service errors (cache service unavailable, invalidation failures)

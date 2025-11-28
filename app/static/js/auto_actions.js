@@ -227,6 +227,11 @@ async function openRuleEditor(ruleId = null) {
     form.reset();
     document.getElementById('aasTestResult').innerHTML = '';
 
+    // In demo mode, restore the fixed channel ID after form reset
+    if (window.AAS_DEMO_MODE && window.AAS_DEMO_CHANNEL) {
+        document.getElementById('aasRuleChannelIds').value = window.AAS_DEMO_CHANNEL;
+    }
+
     // Reload containers if list is empty (may have loaded before DOM was ready)
     if (allContainers.length === 0) {
         loadContainersForAAS();
@@ -335,7 +340,10 @@ function populateRuleForm(rule) {
     document.getElementById('aasRulePriority').value = rule.priority;
 
     // Trigger - Monitored Channel IDs (simple text input)
-    document.getElementById('aasRuleChannelIds').value = rule.trigger.channel_ids.join(', ');
+    // In demo mode, keep the fixed channel ID
+    if (!window.AAS_DEMO_MODE) {
+        document.getElementById('aasRuleChannelIds').value = rule.trigger.channel_ids.join(', ');
+    }
     document.getElementById('aasRuleUsers').value = rule.trigger.source_filter.allowed_user_ids.join(', ');
     document.getElementById('aasRuleRequiredKeywords').value = (rule.trigger.required_keywords || []).join(', ');
     document.getElementById('aasRuleKeywords').value = rule.trigger.keywords.join(', ');
